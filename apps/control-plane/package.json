@@ -1,6 +1,6 @@
 {
   "name": "@codemantle/panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodeMantle control plane API and reverse tunnel orchestrator.",
   "private": false,
   "license": "Apache-2.0",
@@ -8,12 +8,12 @@
   "logo": "./public/logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/XQuestCode/codemantle.git",
+    "url": "git+https://github.com/XQuestCode/CodeMantle.git",
     "directory": "apps/control-plane"
   },
-  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/apps/control-plane",
+  "homepage": "https://github.com/XQuestCode/CodeMantle/tree/main/apps/control-plane",
   "bugs": {
-    "url": "https://github.com/XQuestCode/codemantle/issues"
+    "url": "https://github.com/XQuestCode/CodeMantle/issues"
   },
   "type": "module",
   "keywords": [
@@ -42,7 +42,8 @@
     "pack:check": "npm pack --dry-run"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "dotenv": "^17.3.1",

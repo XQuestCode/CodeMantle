@@ -1,6 +1,6 @@
 {
   "name": "@codemantle/agent-daemon",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CodeMantle host daemon for secure reverse control-plane orchestration.",
   "private": false,
   "license": "Apache-2.0",
@@ -8,12 +8,12 @@
   "logo": "./assets/logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/XQuestCode/codemantle.git",
+    "url": "git+https://github.com/XQuestCode/CodeMantle.git",
     "directory": "packages/agent-daemon"
   },
-  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/packages/agent-daemon",
+  "homepage": "https://github.com/XQuestCode/CodeMantle/tree/main/packages/agent-daemon",
   "bugs": {
-    "url": "https://github.com/XQuestCode/codemantle/issues"
+    "url": "https://github.com/XQuestCode/CodeMantle/issues"
   },
   "keywords": [
     "codemantle",
@@ -41,7 +41,8 @@
     "postinstall": "node scripts/install.mjs"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "dotenv": "^17.3.1",

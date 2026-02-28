@@ -9,7 +9,6 @@ import LogViewer from '../ui/LogViewer'
 import Card from '../ui/Card'
 import { useLogs } from '../../hooks/useLogs'
 import { StepProps, ConnectionStatus } from '../../types'
-import { truncateLogs } from '../../utils'
 
 const PreflightStep = React.memo<StepProps>(({
   config,

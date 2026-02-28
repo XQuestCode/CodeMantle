@@ -26,7 +26,7 @@ const LogRow = React.memo<ListChildComponentProps<LogEntry[]>>(({
   index,
   style,
   data,
-}) => {
+}: ListChildComponentProps<LogEntry[]>) => {
   const entry = data[index]
   
   return (
@@ -80,7 +80,7 @@ const LogViewer = React.memo<LogViewerProps>(({
       
       <div className="log-container" style={{ maxHeight }}>
         <AutoSizer>
-          {({ height, width }) => (
+          {({ height, width }: { height: number; width: number }) => (
             <List
               ref={listRef}
               height={Math.min(height, maxHeight)}

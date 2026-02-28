@@ -8,6 +8,8 @@ import { StepProps } from '../../types'
 interface FormErrors {
   control_plane_url?: string
   auth_token?: string
+  workspace_path?: string
+  start_on_boot?: string
 }
 
 const ConnectionStep = React.memo<StepProps>(({
@@ -50,7 +52,7 @@ const ConnectionStep = React.memo<StepProps>(({
     return Object.keys(newErrors).length === 0
   }, [config, validateField])
 
-  const handleChange = useCallback((field: keyof typeof config) => (value: string) => {
+  const handleChange = useCallback((field: keyof typeof config) => (value: string | boolean) => {
     setConfig(prev => ({ ...prev, [field]: value }))
     
     // Clear error when user types
@@ -61,9 +63,12 @@ const ConnectionStep = React.memo<StepProps>(({
 
   const handleBlur = useCallback((field: keyof typeof config) => () => {
     setTouched(prev => ({ ...prev, [field]: true }))
-    const error = validateField(field, config[field])
-    if (error) {
-      setErrors(prev => ({ ...prev, [field]: error }))
+    const value = config[field]
+    if (typeof value === 'string') {
+      const error = validateField(field, value)
+      if (error) {
+        setErrors(prev => ({ ...prev, [field]: error }))
+      }
     }
   }, [config, validateField])
 

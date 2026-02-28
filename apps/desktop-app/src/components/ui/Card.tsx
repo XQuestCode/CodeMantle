@@ -2,7 +2,7 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import clsx from 'clsx'
 
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+interface CardProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onAnimationStart' | 'onAnimationEnd' | 'onDragStart' | 'onDrag' | 'onDragEnd'> {
   variant?: 'default' | 'glass' | 'elevated'
   padding?: 'sm' | 'md' | 'lg'
   hover?: boolean

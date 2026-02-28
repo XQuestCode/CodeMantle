@@ -30,18 +30,19 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.0.0",
-    "@types/react-window": "^2.0.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.34.3",
     "lucide-react": "^0.400.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-window": "^2.2.7"
+    "react-virtualized-auto-sizer": "^1.0.25",
+    "react-window": "^1.8.11"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
+    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.2.0",
     "sharp": "^0.33.0",
     "typescript": "^5.0.2",

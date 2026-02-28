@@ -8,12 +8,12 @@
   "logo": "./assets/logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/XQuestCode/codemantle.git",
+    "url": "git+https://github.com/XQuestCode/CodeMantle.git",
     "directory": "packages/codemantle"
   },
-  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/packages/codemantle",
+  "homepage": "https://github.com/XQuestCode/CodeMantle/tree/main/packages/codemantle",
   "bugs": {
-    "url": "https://github.com/XQuestCode/codemantle/issues"
+    "url": "https://github.com/XQuestCode/CodeMantle/issues"
   },
   "type": "module",
   "keywords": [
@@ -37,7 +37,8 @@
     "pack:check": "npm pack --dry-run"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
     "@codemantle/agent-daemon": "^0.1.0",
