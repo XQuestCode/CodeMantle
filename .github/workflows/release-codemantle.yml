@@ -57,6 +57,18 @@ jobs:
           fail_on_unmatched_files: false
         continue-on-error: true
 
+      - name: Verify npm configuration
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          echo "Registry: $(npm config get registry)"
+          echo "Tag: ${{ github.ref }}"
+          cat packages/codemantle/package.json | grep version
+
       - name: Publish npm package with provenance
         if: startsWith(github.ref, 'refs/tags/')
-        run: npm publish --workspace packages/codemantle --access public --provenance
+        run: |
+          echo "Publishing to npm with tag: ${{ github.ref }}"
+          npm publish --workspace packages/codemantle --access public --provenance || {
+            echo "Publish failed with exit code $?"
+            exit 1
+          }
