@@ -61,10 +61,11 @@ jobs:
           npm publish --access public --provenance
 
       # GitHub release is secondary - if it fails, npm publish already succeeded
-      - name: Create GitHub release on tag
+      - name: Create or update GitHub release on tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.npm_pack.outputs.filename }}
           fail_on_unmatched_files: false
+          allowUpdates: true
         continue-on-error: true
