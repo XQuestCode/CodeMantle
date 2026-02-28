@@ -1,0 +1,50 @@
+{
+  "name": "codemantle-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CodeMantle desktop setup and local agent launcher built with Tauri.",
+  "license": "Apache-2.0",
+  "author": "XQuestCode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XQuestCode/codemantle.git",
+    "directory": "apps/desktop-app"
+  },
+  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/apps/desktop-app",
+  "bugs": {
+    "url": "https://github.com/XQuestCode/codemantle/issues"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run generate-icons && tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "npm run generate-icons && tauri build",
+    "generate-icons": "node scripts/generate-icons.js"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-autostart": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.0.0",
+    "@types/react-window": "^2.0.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.34.3",
+    "lucide-react": "^0.400.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-window": "^2.2.7"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.2.0",
+    "sharp": "^0.33.0",
+    "typescript": "^5.0.2",
+    "vite": "^5.0.0"
+  }
+}

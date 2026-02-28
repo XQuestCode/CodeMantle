@@ -1,0 +1,87 @@
+name: Release Agent Daemon
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    defaults:
+      run:
+        working-directory: packages/agent-daemon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/agent-daemon/package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify package version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));process.stdout.write(p.version)')"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag version $TAG_VERSION does not match package version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build source package
+        run: npm run build
+
+      - name: Build platform binaries
+        run: |
+          npx pkg . --target node18-win-x64 --output bin/codemantle-agent-windows-x64.exe
+          npx pkg . --target node18-macos-x64 --output bin/codemantle-agent-darwin-x64
+          npx pkg . --target node18-macos-arm64 --output bin/codemantle-agent-darwin-arm64
+          npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux-x64
+          npx pkg . --target node18-linux-arm64 --output bin/codemantle-agent-linux-arm64
+
+      - name: Generate checksums manifest
+        run: node -e 'const fs=require("fs"); const crypto=require("crypto"); const dir="bin"; const files=fs.readdirSync(dir).filter((name)=>name.startsWith("codemantle-agent-")); const lines=files.map((file)=>{const h=crypto.createHash("sha256").update(fs.readFileSync(`${dir}/${file}`)).digest("hex"); return `${h}  ${file}`;}); fs.writeFileSync(`${dir}/checksums.txt`, `${lines.join("\n")}\n`);'
+
+      - name: Pack npm wrapper
+        run: npm pack --json > npm-pack-output.json
+
+      - name: Extract npm artifact name
+        id: npm_pack
+        run: node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("npm-pack-output.json","utf8")); const raw=(data[0].filename||"").trim(); const safe=raw.replace(/^@/,"").replace(/\//g,"-"); console.log(`filename=${safe}`)' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codemantle-agent-release-artifacts
+          path: |
+            packages/agent-daemon/bin/codemantle-agent-*
+            packages/agent-daemon/bin/checksums.txt
+            packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
+
+      - name: Create or update GitHub release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/agent-daemon/bin/codemantle-agent-*
+            packages/agent-daemon/bin/checksums.txt
+            packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
+
+      - name: Publish npm package
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "Skipping publish - NPM_TOKEN not set"
+            exit 0
+          fi
+          npm publish --access public

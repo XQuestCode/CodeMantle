@@ -1,0 +1,84 @@
+name: Release Desktop App
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            bundles: dmg
+          - platform: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop-app/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: apps/desktop-app
+
+      - name: Build sidecar binaries for desktop bundle
+        run: |
+          npm ci
+          npx pkg . --target node18-win-x64 --output bin/codemantle-agent.exe
+          npx pkg . --target node18-macos-x64 --output bin/codemantle-agent-macos
+          npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux
+        working-directory: packages/agent-daemon
+
+      - name: Optional Windows signing hook
+        if: runner.os == 'Windows' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != ''
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "codemantle-signing-cert.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE }}"))
+          "WINDOWS_CERTIFICATE_PATH=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Optional macOS signing hook
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != ''
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/codemantle-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/codemantle-signing-cert.p12"
+          echo "${{ secrets.APPLE_CERTIFICATE }}" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build and release desktop bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop-app
+          tagName: ${{ github.ref_name }}
+          releaseName: "CodeMantle Desktop ${{ github.ref_name }}"
+          releaseBody: "Automated desktop release artifact"
+          releaseDraft: false
+          prerelease: false
+          args: --bundles ${{ matrix.bundles }}

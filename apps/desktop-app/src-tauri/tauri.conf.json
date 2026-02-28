@@ -1,0 +1,97 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "identifier": "com.codemantle.desktop",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../../packages/agent-daemon/bin/codemantle-agent.exe": "./sidecar/codemantle-agent.exe",
+      "../../../packages/agent-daemon/bin/codemantle-agent-macos": "./sidecar/codemantle-agent-macos",
+      "../../../packages/agent-daemon/bin/codemantle-agent-linux": "./sidecar/codemantle-agent-linux"
+    }
+  },
+  "productName": "CodeMantle",
+  "version": "0.1.0",
+  "plugins": {
+    "autostart": {
+      "enabled": true
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY",
+      "endpoints": [
+        "https://updates.example.com/codemantle/latest.json"
+      ]
+    }
+  },
+  "app": {
+    "security": {
+      "csp": null,
+      "capabilities": [
+        {
+          "identifier": "default",
+          "windows": ["main"],
+          "permissions": [
+            "core:default",
+            "dialog:default",
+            "shell:default",
+            "autostart:default",
+            "updater:default",
+            "shell:allow-spawn",
+            "shell:allow-execute",
+            "shell:allow-kill"
+          ]
+        }
+      ]
+    },
+    "trayIcon": {
+      "id": "main-tray",
+      "iconPath": "icons/icon.png",
+      "tooltip": "CodeMantle Agent",
+      "menu": [
+        {
+          "id": "show",
+          "text": "Show CodeMantle"
+        },
+        {
+          "id": "hide",
+          "text": "Hide to Tray"
+        },
+        {
+          "id": "separator",
+          "text": "---"
+        },
+        {
+          "id": "quit",
+          "text": "Quit"
+        }
+      ]
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "CodeMantle Setup",
+        "width": 800,
+        "height": 600,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": true,
+        "center": true,
+        "visible": true
+      }
+    ]
+  }
+}

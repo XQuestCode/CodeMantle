@@ -1,0 +1,72 @@
+{
+  "name": "@codemantle/agent-daemon",
+  "version": "0.1.0",
+  "description": "CodeMantle host daemon for secure reverse control-plane orchestration.",
+  "private": false,
+  "license": "Apache-2.0",
+  "author": "XQuestCode",
+  "logo": "./assets/logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XQuestCode/codemantle.git",
+    "directory": "packages/agent-daemon"
+  },
+  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/packages/agent-daemon",
+  "bugs": {
+    "url": "https://github.com/XQuestCode/codemantle/issues"
+  },
+  "keywords": [
+    "codemantle",
+    "daemon",
+    "agent",
+    "opencode"
+  ],
+  "type": "module",
+  "files": [
+    "bin/codemantle-agent.js",
+    "scripts/lib/downloader.mjs",
+    "scripts/install.mjs",
+    "assets/**",
+    "README.md"
+  ],
+  "bin": {
+    "codemantle-agent": "./bin/codemantle-agent.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run build:cli",
+    "build:cli": "node scripts/build-cli.mjs",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "pkg": "pkg . --out-path=bin",
+    "postinstall": "node scripts/install.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "enquirer": "^2.4.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/ws": "^8.5.14",
+    "pkg": "^5.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.2"
+  },
+  "pkg": {
+    "scripts": [
+      "dist/**/*.js"
+    ],
+    "assets": [
+      "package.json"
+    ],
+    "targets": [
+      "node18-win-x64",
+      "node18-macos-x64",
+      "node18-macos-arm64",
+      "node18-linux-x64"
+    ]
+  }
+}

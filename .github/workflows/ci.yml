@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-control-plane:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/control-plane/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run pack:check
+
+  build-agent-daemon:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/agent-daemon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/agent-daemon/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  build-codemantle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build --workspace packages/codemantle
+      - run: npm run pack:check --workspace packages/codemantle
+
+  build-desktop-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop-app/package-lock.json
+      - run: npm ci
+      - run: npm run build

@@ -1,0 +1,30 @@
+{
+  "name": "codemantle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CodeMantle monorepo for control plane, desktop app, and agent daemon.",
+  "license": "Apache-2.0",
+  "author": "XQuestCode",
+  "logo": "./CodeMantle.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XQuestCode/codemantle.git"
+  },
+  "homepage": "https://github.com/XQuestCode/codemantle",
+  "bugs": {
+    "url": "https://github.com/XQuestCode/codemantle/issues"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:control-plane": "npm run dev --workspace @codemantle/panel",
+    "dev:desktop-app": "npm run dev --workspace codemantle-desktop",
+    "dev:agent-daemon": "npm run dev --workspace @codemantle/agent-daemon",
+    "dev:codemantle": "npm run dev --workspace packages/codemantle"
+  }
+}

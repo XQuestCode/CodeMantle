@@ -1,0 +1,34 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Build artifacts
+dist/
+bin/
+coverage/
+
+# Tauri / Rust
+target/
+**/*.rs.bk
+
+# Env and local state
+.env
+**/*.env
+.env.local
+.opencode-session-registry.json
+.opencode-session-snapshot.jsonl
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.opencode/
+
+./mvp-state.md
+./PROTOCOL.md
+./**/*.log
+*.log
+
+mvp-state.md
+PROTOCOL.md

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CodeMantle Control Plane</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div class="app">
+      <!-- Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+            <span>CodeMantle</span>
+          </div>
+          <div class="connection-status" id="connection-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+          </div>
+        </div>
+
+        <div class="sidebar-content">
+          <div class="section-header">
+            <span class="section-title">Devices</span>
+            <div class="section-actions">
+              <button class="icon-btn" id="refresh-devices" title="Refresh devices">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <ul id="devices-list" class="devices-list"></ul>
+          <div class="empty-state" id="devices-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/>
+              <line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+            <span>No devices connected</span>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="stats">
+            <div class="stat">
+              <span class="stat-value" id="online-count">0</span>
+              <span class="stat-label">Online</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="total-count">0</span>
+              <span class="stat-label">Total</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main">
+        <!-- Header -->
+        <header class="main-header">
+          <div class="breadcrumbs">
+            <span class="breadcrumb-item">Control Plane</span>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-item active" id="header-device">Select a device</span>
+          </div>
+          <div class="header-actions">
+            <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="9" y1="3" x2="9" y2="21"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Content Grid -->
+        <div class="content-grid">
+          <!-- Left Column: Filesystem -->
+          <section class="panel filesystem-panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                </svg>
+                <span>Explorer</span>
+              </div>
+              <div class="panel-actions">
+                <span class="path-badge" id="selected-path">/</span>
+              </div>
+            </div>
+            <div class="panel-content tree-panel-content">
+              <div id="tree-root" class="tree-container">
+                <div class="empty-state">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <path d="M9 15l2 2 4-4"/>
+                  </svg>
+                  <span>Select a device to browse files</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Right Column: Main Actions -->
+          <section class="panel main-actions-panel">
+            <!-- OpenCode Section - Primary -->
+            <div class="primary-section">
+              <div class="section-header-primary">
+                <div class="section-title-primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                  <span>OpenCode</span>
+                </div>
+                <span class="status-badge primary-badge" id="session-status">Ready</span>
+              </div>
+
+              <div class="primary-content">
+                <div class="session-info-compact">
+                  <div class="info-badge">
+                    <span class="info-badge-label">Path</span>
+                    <span class="info-badge-value" id="project-path-display">—</span>
+                  </div>
+                  <div class="info-badge">
+                    <span class="info-badge-label">Session</span>
+                    <span class="info-badge-value" id="session-id-display">—</span>
+                  </div>
+                </div>
+
+                <div class="port-exposure" id="port-exposure">
+                  <div class="port-exposure-header">
+                    <span>Detected Web Ports</span>
+                  </div>
+                  <div class="port-links" id="port-links">
+                    <span class="port-empty">No detected ports yet</span>
+                  </div>
+                </div>
+
+                <div class="primary-actions">
+                  <button id="start-session" class="btn btn-primary btn-xlarge" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <span id="start-session-text">Launch OpenCode</span>
+                  </button>
+                  
+                  <div class="secondary-action-row">
+                    <button id="open-in-browser" class="btn btn-secondary" disabled>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                      </svg>
+                      Open in Browser
+                    </button>
+                    <button id="copy-url" class="btn btn-secondary" disabled>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                      </svg>
+                      Copy URL
+                    </button>
+                    <button id="stop-session" class="btn btn-danger" disabled>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="9" y1="9" x2="15" y2="15"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/>
+                      </svg>
+                      Stop
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tools Section - Secondary -->
+            <div class="tools-section">
+              <div class="tools-header">
+                <div class="tools-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="4"/>
+                    <path d="M12 8v8"/>
+                    <path d="M8 12h8"/>
+                  </svg>
+                  <span>Tools</span>
+                </div>
+                <div class="tools-tabs">
+                  <button class="tool-tab active" data-tool="git">Git</button>
+                  <button class="tool-tab" data-tool="logs">Logs</button>
+                </div>
+              </div>
+
+              <!-- Git Tool -->
+              <div class="tool-content active" id="git-tool">
+                <div class="tool-status-bar">
+                  <span class="tool-status-label">Repository</span>
+                  <span class="tool-status-value" id="git-status-badge">No repo</span>
+                  <button class="icon-btn tool-refresh" id="git-refresh" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <polyline points="1 20 1 14 7 14"/>
+                      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="git-info-row" id="git-info-row" style="display: none;">
+                  <div class="git-branch-display">
+                    <span class="git-label">Branch:</span>
+                    <span class="git-value" id="git-branch">—</span>
+                  </div>
+                  <div class="git-stats-compact">
+                    <div class="git-stat-compact" title="Added">
+                      <span class="git-stat-dot added"></span>
+                      <span id="git-added-count">0</span>
+                    </div>
+                    <div class="git-stat-compact" title="Modified">
+                      <span class="git-stat-dot modified"></span>
+                      <span id="git-modified-count">0</span>
+                    </div>
+                    <div class="git-stat-compact" title="Untracked">
+                      <span class="git-stat-dot untracked"></span>
+                      <span id="git-untracked-count">0</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="tool-actions-grid">
+                  <div class="tool-action-group">
+                    <span class="tool-group-label">Repository</span>
+                    <div class="tool-buttons">
+                      <button id="git-init" class="btn btn-tool" disabled>Init</button>
+                      <button id="git-clone" class="btn btn-tool" disabled>Clone</button>
+                      <button id="git-config" class="btn btn-tool" disabled>Config</button>
+                    </div>
+                  </div>
+
+                  <div class="tool-action-group">
+                    <span class="tool-group-label">Changes</span>
+                    <div class="tool-buttons">
+                      <button id="git-add" class="btn btn-tool" disabled>Add</button>
+                      <button id="git-commit" class="btn btn-tool" disabled>Commit</button>
+                    </div>
+                  </div>
+
+                  <div class="tool-action-group">
+                    <span class="tool-group-label">Remote</span>
+                    <div class="tool-buttons">
+                      <button id="git-pull" class="btn btn-tool" disabled>Pull</button>
+                      <button id="git-push" class="btn btn-tool" disabled>Push</button>
+                    </div>
+                  </div>
+
+                  <div class="tool-action-group">
+                    <span class="tool-group-label">Branches</span>
+                    <div class="tool-buttons">
+                      <button id="git-branch-btn" class="btn btn-tool" disabled>Branch</button>
+                      <button id="git-checkout" class="btn btn-tool" disabled>Checkout</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Logs Tool -->
+              <div class="tool-content" id="logs-tool">
+                <div class="activity-log-section">
+                  <div class="activity-log-header">
+                    <span class="activity-log-title">Activity Log</span>
+                    <button class="icon-btn" id="clear-log" title="Clear log">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div id="activity-log" class="activity-log">
+                    <div class="log-entry info">
+                      <span class="log-time">--:--:--</span>
+                      <span class="log-message">Select a device and folder to get started</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu">
+      <div class="context-menu-item" data-action="new-folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          <line x1="12" y1="11" x2="12" y2="17"/>
+          <line x1="9" y1="14" x2="15" y2="14"/>
+        </svg>
+        <span>New Folder</span>
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item" data-action="rename">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        <span>Rename</span>
+      </div>
+      <div class="context-menu-item danger" data-action="delete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+        </svg>
+        <span>Delete</span>
+      </div>
+    </div>
+
+    <!-- Modal Dialog -->
+    <div id="modal" class="modal">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modal-title">Dialog</h3>
+          <button class="icon-btn modal-close" id="modal-close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="input-group">
+            <label id="modal-label">Name</label>
+            <input id="modal-input" type="text" maxlength="255" autocomplete="off" />
+          </div>
+          <p id="modal-message" class="modal-message"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="modal-confirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+  </body>
+</html>

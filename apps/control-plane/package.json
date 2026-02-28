@@ -1,0 +1,57 @@
+{
+  "name": "@codemantle/panel",
+  "version": "0.1.0",
+  "description": "CodeMantle control plane API and reverse tunnel orchestrator.",
+  "private": false,
+  "license": "Apache-2.0",
+  "author": "XQuestCode",
+  "logo": "./public/logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XQuestCode/codemantle.git",
+    "directory": "apps/control-plane"
+  },
+  "homepage": "https://github.com/XQuestCode/codemantle/tree/main/apps/control-plane",
+  "bugs": {
+    "url": "https://github.com/XQuestCode/codemantle/issues"
+  },
+  "type": "module",
+  "keywords": [
+    "codemantle",
+    "panel",
+    "control-plane",
+    "opencode"
+  ],
+  "files": [
+    "bin/codemantle-panel.js",
+    "dist/**",
+    "public/**",
+    "schemas/**",
+    "README.md",
+    ".env.example",
+    "logo.png"
+  ],
+  "bin": {
+    "codemantle-panel": "./bin/codemantle-panel.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "start:cli": "node dist/cli.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.2"
+  }
+}
