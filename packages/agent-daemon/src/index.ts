@@ -117,7 +117,7 @@ const OPENCODE_READY_CHECK_MS = parseInt(
   10,
 );
 const OPENCODE_COMMAND = process.env.OPENCODE_COMMAND ?? "opencode";
-const AGENT_VERSION = process.env.AGENT_VERSION ?? "0.1.1";
+const AGENT_VERSION = process.env.AGENT_VERSION ?? "0.1.2";
 const DEVICE_ID = process.env.DEVICE_ID ?? defaultDeviceId();
 
 const BASE_RECONNECT_MS = parseInt(process.env.RECONNECT_BASE_MS ?? "1000", 10);
