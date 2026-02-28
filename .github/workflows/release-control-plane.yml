@@ -22,8 +22,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: apps/control-plane/package-lock.json
-          registry-url: https://npm.pkg.github.com
-          scope: '@codemantle'
+          registry-url: https://registry.npmjs.org
       - name: Install dependencies
         run: npm ci
 
@@ -58,13 +57,6 @@ jobs:
         with:
           files: apps/control-plane/${{ steps.npm_pack.outputs.filename }}
 
-      - name: Publish npm package
+      - name: Publish npm package with provenance
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "Skipping publish - GITHUB_TOKEN not available"
-            exit 0
-          fi
-          npm publish --access public --provenance
+        run: npm publish --access public --provenance

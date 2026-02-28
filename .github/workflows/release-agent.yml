@@ -22,8 +22,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: packages/agent-daemon/package-lock.json
-          registry-url: https://npm.pkg.github.com
-          scope: '@codemantle'
+          registry-url: https://registry.npmjs.org
 
       - name: Verify package version matches tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -76,13 +75,6 @@ jobs:
             packages/agent-daemon/bin/checksums.txt
             packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
 
-      - name: Publish npm package
+      - name: Publish npm package with provenance
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "Skipping publish - GITHUB_TOKEN not available"
-            exit 0
-          fi
-          npm publish --access public
+        run: npm publish --access public --provenance
