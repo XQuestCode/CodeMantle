@@ -23,7 +23,7 @@
     }
   },
   "productName": "CodeMantle",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "plugins": {
     "autostart": {
       "enabled": true
@@ -43,7 +43,9 @@
       "capabilities": [
         {
           "identifier": "default",
-          "windows": ["main"],
+          "windows": [
+            "main"
+          ],
           "permissions": [
             "core:default",
             "dialog:default",

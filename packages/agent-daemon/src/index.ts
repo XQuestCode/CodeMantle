@@ -1,7 +1,25 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { appendFile, chmod, lstat, mkdir, opendir, readFile, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  lstat,
+  mkdir,
+  opendir,
+  readFile,
+  realpath,
+  rename,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import net from "node:net";
 import { config as loadDotenv, parse as parseDotenv } from "dotenv";
 import os from "node:os";
@@ -66,62 +84,154 @@ import {
   type GitConfigResponseMessage,
   type GitLogMessage,
 } from "./contracts.js";
-import { Provisioner, type DependencyStatus, type SetupProgressEvent } from "./provisioner.js";
+import {
+  Provisioner,
+  type DependencyStatus,
+  type SetupProgressEvent,
+} from "./provisioner.js";
 
 loadDotenv();
 
 let CONTROL_PLANE_URL = "";
 let AGENT_AUTH_TOKEN = "";
-const OPENCODE_BASE_URL = (process.env.OPENCODE_BASE_URL ?? "http://localhost:4096").replace(/\/$/, "");
+const OPENCODE_BASE_URL = (
+  process.env.OPENCODE_BASE_URL ?? "http://localhost:4096"
+).replace(/\/$/, "");
 const OPENCODE_PROVIDER_ID = process.env.OPENCODE_PROVIDER_ID ?? "openai";
 const OPENCODE_MODEL_ID = process.env.OPENCODE_MODEL_ID ?? "gpt-5.3-codex";
 const OPENCODE_HOST = process.env.OPENCODE_HOST ?? "127.0.0.1";
-const OPENCODE_START_PORT = parseInt(process.env.OPENCODE_START_PORT ?? "4096", 10);
-const OPENCODE_PORT_SCAN_RANGE = parseInt(process.env.OPENCODE_PORT_SCAN_RANGE ?? "200", 10);
-const OPENCODE_BOOT_TIMEOUT_MS = parseInt(process.env.OPENCODE_BOOT_TIMEOUT_MS ?? "15000", 10);
-const OPENCODE_READY_CHECK_MS = parseInt(process.env.OPENCODE_READY_CHECK_MS ?? "250", 10);
+const OPENCODE_START_PORT = parseInt(
+  process.env.OPENCODE_START_PORT ?? "4096",
+  10,
+);
+const OPENCODE_PORT_SCAN_RANGE = parseInt(
+  process.env.OPENCODE_PORT_SCAN_RANGE ?? "200",
+  10,
+);
+const OPENCODE_BOOT_TIMEOUT_MS = parseInt(
+  process.env.OPENCODE_BOOT_TIMEOUT_MS ?? "15000",
+  10,
+);
+const OPENCODE_READY_CHECK_MS = parseInt(
+  process.env.OPENCODE_READY_CHECK_MS ?? "250",
+  10,
+);
 const OPENCODE_COMMAND = process.env.OPENCODE_COMMAND ?? "opencode";
-const AGENT_VERSION = process.env.AGENT_VERSION ?? "0.1.0";
+const AGENT_VERSION = process.env.AGENT_VERSION ?? "0.1.1";
 const DEVICE_ID = process.env.DEVICE_ID ?? defaultDeviceId();
 
 const BASE_RECONNECT_MS = parseInt(process.env.RECONNECT_BASE_MS ?? "1000", 10);
 const MAX_RECONNECT_MS = parseInt(process.env.RECONNECT_MAX_MS ?? "30000", 10);
-const MAX_FRAME_BYTES = parseInt(process.env.MAX_FRAME_BYTES ?? String(MAX_STREAM_CHUNK_BYTES + 1024), 10);
-const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "10000", 10);
-const GIT_COMMAND_TIMEOUT_MS = parseInt(process.env.GIT_COMMAND_TIMEOUT_MS ?? "120000", 10);
-const GIT_LOG_MAX_LINES = parseInt(process.env.GIT_LOG_MAX_LINES ?? "200", 10);
-const SESSION_LOG_REPLAY_LINES = parseInt(process.env.SESSION_LOG_REPLAY_LINES ?? "50", 10);
-const SESSION_LOG_REPLAY_MAX_LINES = parseInt(process.env.SESSION_LOG_REPLAY_MAX_LINES ?? "200", 10);
-const SESSION_LOG_MAX_BYTES = parseInt(process.env.SESSION_LOG_MAX_BYTES ?? "1048576", 10);
-const SESSION_SNAPSHOT_MAX_BYTES = parseInt(process.env.SESSION_SNAPSHOT_MAX_BYTES ?? "5242880", 10);
-const SESSION_JIT_MAX_TTL_MS = parseInt(process.env.SESSION_JIT_MAX_TTL_MS ?? "3600000", 10);
-const SESSION_JIT_MIN_TTL_MS = parseInt(process.env.SESSION_JIT_MIN_TTL_MS ?? "15000", 10);
-const SESSION_JIT_DEFAULT_ENV_VAR = process.env.SESSION_JIT_DEFAULT_ENV_VAR ?? "OPENCODE_SESSION_TOKEN";
-const SESSION_JIT_ENV_MAX_PAIRS = parseInt(process.env.SESSION_JIT_ENV_MAX_PAIRS ?? "8", 10);
-const SESSION_JIT_ENV_MAX_VALUE_BYTES = parseInt(process.env.SESSION_JIT_ENV_MAX_VALUE_BYTES ?? "2048", 10);
-const SESSION_JIT_ENV_ALLOWLIST = parseJitEnvAllowlist(
-  process.env.SESSION_JIT_ENV_ALLOWLIST
-    ?? `${SESSION_JIT_DEFAULT_ENV_VAR},OPENCODE_JIT_SCOPE,OPENCODE_JIT_TOKEN_EXPIRES_AT`,
+const MAX_FRAME_BYTES = parseInt(
+  process.env.MAX_FRAME_BYTES ?? String(MAX_STREAM_CHUNK_BYTES + 1024),
+  10,
 );
-const PORT_SCAN_INTERVAL_MS = parseInt(process.env.PORT_SCAN_INTERVAL_MS ?? "3000", 10);
-const PORT_SCAN_MAX_REPORTED = parseInt(process.env.PORT_SCAN_MAX_REPORTED ?? "24", 10);
-const PORT_SCAN_MIN_PORT = parseInt(process.env.PORT_SCAN_MIN_PORT ?? "3000", 10);
-const PORT_SCAN_MAX_PORT = parseInt(process.env.PORT_SCAN_MAX_PORT ?? "8000", 10);
-const PORT_PROXY_TIMEOUT_MS = parseInt(process.env.PORT_PROXY_TIMEOUT_MS ?? "20000", 10);
-const PORT_PROXY_MAX_RESPONSE_BYTES = parseInt(process.env.PORT_PROXY_MAX_RESPONSE_BYTES ?? "1048576", 10);
-const CONFIG_PUSH_MAX_BYTES = parseInt(process.env.CONFIG_PUSH_MAX_BYTES ?? "262144", 10);
-const CONFIG_RESTRICTED_DEFAULT_APPLY_PATH = path.join(".opencode", "opencode.json");
+const REQUEST_TIMEOUT_MS = parseInt(
+  process.env.REQUEST_TIMEOUT_MS ?? "10000",
+  10,
+);
+const GIT_COMMAND_TIMEOUT_MS = parseInt(
+  process.env.GIT_COMMAND_TIMEOUT_MS ?? "120000",
+  10,
+);
+const GIT_LOG_MAX_LINES = parseInt(process.env.GIT_LOG_MAX_LINES ?? "200", 10);
+const SESSION_LOG_REPLAY_LINES = parseInt(
+  process.env.SESSION_LOG_REPLAY_LINES ?? "50",
+  10,
+);
+const SESSION_LOG_REPLAY_MAX_LINES = parseInt(
+  process.env.SESSION_LOG_REPLAY_MAX_LINES ?? "200",
+  10,
+);
+const SESSION_LOG_MAX_BYTES = parseInt(
+  process.env.SESSION_LOG_MAX_BYTES ?? "1048576",
+  10,
+);
+const SESSION_SNAPSHOT_MAX_BYTES = parseInt(
+  process.env.SESSION_SNAPSHOT_MAX_BYTES ?? "5242880",
+  10,
+);
+const SESSION_JIT_MAX_TTL_MS = parseInt(
+  process.env.SESSION_JIT_MAX_TTL_MS ?? "3600000",
+  10,
+);
+const SESSION_JIT_MIN_TTL_MS = parseInt(
+  process.env.SESSION_JIT_MIN_TTL_MS ?? "15000",
+  10,
+);
+const SESSION_JIT_DEFAULT_ENV_VAR =
+  process.env.SESSION_JIT_DEFAULT_ENV_VAR ?? "OPENCODE_SESSION_TOKEN";
+const SESSION_JIT_ENV_MAX_PAIRS = parseInt(
+  process.env.SESSION_JIT_ENV_MAX_PAIRS ?? "8",
+  10,
+);
+const SESSION_JIT_ENV_MAX_VALUE_BYTES = parseInt(
+  process.env.SESSION_JIT_ENV_MAX_VALUE_BYTES ?? "2048",
+  10,
+);
+const SESSION_JIT_ENV_ALLOWLIST = parseJitEnvAllowlist(
+  process.env.SESSION_JIT_ENV_ALLOWLIST ??
+    `${SESSION_JIT_DEFAULT_ENV_VAR},OPENCODE_JIT_SCOPE,OPENCODE_JIT_TOKEN_EXPIRES_AT`,
+);
+const PORT_SCAN_INTERVAL_MS = parseInt(
+  process.env.PORT_SCAN_INTERVAL_MS ?? "3000",
+  10,
+);
+const PORT_SCAN_MAX_REPORTED = parseInt(
+  process.env.PORT_SCAN_MAX_REPORTED ?? "24",
+  10,
+);
+const PORT_SCAN_MIN_PORT = parseInt(
+  process.env.PORT_SCAN_MIN_PORT ?? "3000",
+  10,
+);
+const PORT_SCAN_MAX_PORT = parseInt(
+  process.env.PORT_SCAN_MAX_PORT ?? "8000",
+  10,
+);
+const PORT_PROXY_TIMEOUT_MS = parseInt(
+  process.env.PORT_PROXY_TIMEOUT_MS ?? "20000",
+  10,
+);
+const PORT_PROXY_MAX_RESPONSE_BYTES = parseInt(
+  process.env.PORT_PROXY_MAX_RESPONSE_BYTES ?? "1048576",
+  10,
+);
+const CONFIG_PUSH_MAX_BYTES = parseInt(
+  process.env.CONFIG_PUSH_MAX_BYTES ?? "262144",
+  10,
+);
+const CONFIG_RESTRICTED_DEFAULT_APPLY_PATH = path.join(
+  ".opencode",
+  "opencode.json",
+);
 
-const ALLOWED_PROJECT_ROOT = path.resolve(process.env.AGENT_PROJECT_ROOT ?? process.cwd());
+const ALLOWED_PROJECT_ROOT = path.resolve(
+  process.env.AGENT_PROJECT_ROOT ?? process.cwd(),
+);
 const ALLOWED_PROJECT_ROOT_REAL = resolveRootRealPath(ALLOWED_PROJECT_ROOT);
 const ENV_FILE_PATH = path.join(ALLOWED_PROJECT_ROOT_REAL, ".env");
-const SESSION_LOG_FILE = path.join(ALLOWED_PROJECT_ROOT_REAL, ".opencode-session-log");
-const SESSION_SNAPSHOT_FILE = path.join(ALLOWED_PROJECT_ROOT_REAL, ".opencode-session-snapshot.jsonl");
-const OPENCODE_REGISTRY_FILE = process.env.OPENCODE_REGISTRY_FILE ?? path.join(ALLOWED_PROJECT_ROOT_REAL, ".opencode-session-registry.json");
-const OPENCODE_CONFIG_ALLOWLIST = parseConfigAllowlist(process.env.OPENCODE_CONFIG_ALLOWLIST ?? ".opencode/opencode.json");
-const DAEMON_LOCK_FILE = process.env.AGENT_LOCK_FILE ?? path.join(os.tmpdir(), "codemantle-agent-daemon.lock.json");
-const TELEMETRY_ACTIVE_HANDLES_ENABLED = process.env.TELEMETRY_ACTIVE_HANDLES === "1";
-const SESSION_URL_LOG_REGEX = /\bhttps?:\/\/(?:127\.0\.0\.1|localhost):\d+\/[A-Za-z0-9_-]+\/session\b/;
+const SESSION_LOG_FILE = path.join(
+  ALLOWED_PROJECT_ROOT_REAL,
+  ".opencode-session-log",
+);
+const SESSION_SNAPSHOT_FILE = path.join(
+  ALLOWED_PROJECT_ROOT_REAL,
+  ".opencode-session-snapshot.jsonl",
+);
+const OPENCODE_REGISTRY_FILE =
+  process.env.OPENCODE_REGISTRY_FILE ??
+  path.join(ALLOWED_PROJECT_ROOT_REAL, ".opencode-session-registry.json");
+const OPENCODE_CONFIG_ALLOWLIST = parseConfigAllowlist(
+  process.env.OPENCODE_CONFIG_ALLOWLIST ?? ".opencode/opencode.json",
+);
+const DAEMON_LOCK_FILE =
+  process.env.AGENT_LOCK_FILE ??
+  path.join(os.tmpdir(), "codemantle-agent-daemon.lock.json");
+const TELEMETRY_ACTIVE_HANDLES_ENABLED =
+  process.env.TELEMETRY_ACTIVE_HANDLES === "1";
+const SESSION_URL_LOG_REGEX =
+  /\bhttps?:\/\/(?:127\.0\.0\.1|localhost):\d+\/[A-Za-z0-9_-]+\/session\b/;
 let opencodeOrchestrator: OpenCodeOrchestrator | null = null;
 let daemonLockHeld = false;
 
@@ -174,7 +284,9 @@ function connect(): void {
     activeH1Nonce = h1.n;
     sendJson(ws, h1);
 
-    log(`connected, sent handshake device=${DEVICE_ID} root=${ALLOWED_PROJECT_ROOT_REAL}`);
+    log(
+      `connected, sent handshake device=${DEVICE_ID} root=${ALLOWED_PROJECT_ROOT_REAL}`,
+    );
   });
 
   ws.on("message", (raw) => {
@@ -402,7 +514,10 @@ function buildHandshakeInit(): HandshakeInitMessage {
     ak: authKeyId,
     n: nonce,
     ts,
-    m: sign(AGENT_AUTH_TOKEN, canonicalH1ForKeyId(DEVICE_ID, nonce, ts, authKeyId)),
+    m: sign(
+      AGENT_AUTH_TOKEN,
+      canonicalH1ForKeyId(DEVICE_ID, nonce, ts, authKeyId),
+    ),
     c: telemetryFingerprint(hostname, platform, AGENT_VERSION),
     hn: hostname.slice(0, 64),
     os: platform.slice(0, 64),
@@ -411,7 +526,10 @@ function buildHandshakeInit(): HandshakeInitMessage {
 }
 
 function verifyHandshakeAck(message: HandshakeAckMessage): boolean {
-  const expected = sign(AGENT_AUTH_TOKEN, `h2|1|${message.s}|${message.n}|${message.hb}|${message.mx}|${activeH1Nonce}`);
+  const expected = sign(
+    AGENT_AUTH_TOKEN,
+    `h2|1|${message.s}|${message.n}|${message.hb}|${message.mx}|${activeH1Nonce}`,
+  );
   return secureEqual(message.m, expected);
 }
 
@@ -422,7 +540,9 @@ function sendTelemetryPing(): void {
   }
 
   const activeHandles = TELEMETRY_ACTIVE_HANDLES_ENABLED
-    ? (process as { _getActiveHandles?: () => unknown[] })._getActiveHandles?.().length ?? 0
+    ? ((
+        process as { _getActiveHandles?: () => unknown[] }
+      )._getActiveHandles?.().length ?? 0)
     : 0;
 
   const ping: TelemetryPingMessage = {
@@ -437,25 +557,31 @@ function sendTelemetryPing(): void {
 
 function startTelemetryLoop(): void {
   clearTimer(telemetryTimer);
-  telemetryTimer = setInterval(() => {
-    sendTelemetryPing();
-  }, Math.max(5, heartbeatSeconds) * 1000);
+  telemetryTimer = setInterval(
+    () => {
+      sendTelemetryPing();
+    },
+    Math.max(5, heartbeatSeconds) * 1000,
+  );
   telemetryTimer.unref();
 }
 
 function startWatchdogLoop(): void {
   clearTimer(watchdogTimer);
-  watchdogTimer = setInterval(() => {
-    const ws = socket;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    const timeoutMs = Math.max(15000, heartbeatSeconds * 3000);
-    if (Date.now() - lastActivityAt > timeoutMs) {
-      log("heartbeat timeout, terminating socket");
-      ws.terminate();
-    }
-  }, Math.max(5, heartbeatSeconds) * 1000);
+  watchdogTimer = setInterval(
+    () => {
+      const ws = socket;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      const timeoutMs = Math.max(15000, heartbeatSeconds * 3000);
+      if (Date.now() - lastActivityAt > timeoutMs) {
+        log("heartbeat timeout, terminating socket");
+        ws.terminate();
+      }
+    },
+    Math.max(5, heartbeatSeconds) * 1000,
+  );
   watchdogTimer.unref();
 }
 
@@ -463,9 +589,12 @@ function startPortScanLoop(): void {
   clearTimer(portScanTimer);
   publishedListeningPorts.clear();
   void refreshPortExposure();
-  portScanTimer = setInterval(() => {
-    void refreshPortExposure();
-  }, Math.max(1500, PORT_SCAN_INTERVAL_MS));
+  portScanTimer = setInterval(
+    () => {
+      void refreshPortExposure();
+    },
+    Math.max(1500, PORT_SCAN_INTERVAL_MS),
+  );
   portScanTimer.unref();
 }
 
@@ -505,9 +634,16 @@ async function refreshPortExposure(): Promise<void> {
 }
 
 function publishExposedPorts(ports: number[]): void {
-  const normalized = Array.from(new Set(ports)).sort((left, right) => left - right);
-  const previous = Array.from(publishedListeningPorts).sort((left, right) => left - right);
-  if (normalized.length === previous.length && normalized.every((port, index) => port === previous[index])) {
+  const normalized = Array.from(new Set(ports)).sort(
+    (left, right) => left - right,
+  );
+  const previous = Array.from(publishedListeningPorts).sort(
+    (left, right) => left - right,
+  );
+  if (
+    normalized.length === previous.length &&
+    normalized.every((port, index) => port === previous[index])
+  ) {
     return;
   }
 
@@ -534,7 +670,10 @@ function scheduleReconnect(): void {
     return;
   }
 
-  const backoff = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** reconnectAttempt);
+  const backoff = Math.min(
+    MAX_RECONNECT_MS,
+    BASE_RECONNECT_MS * 2 ** reconnectAttempt,
+  );
   const jitter = Math.floor(Math.random() * 300);
   const delay = backoff + jitter;
   reconnectAttempt += 1;
@@ -547,7 +686,9 @@ function scheduleReconnect(): void {
   reconnectTimer.unref();
 }
 
-async function handleDirectoryRequest(message: DirectoryRequestMessage): Promise<void> {
+async function handleDirectoryRequest(
+  message: DirectoryRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -596,7 +737,10 @@ async function handleDirectoryRequest(message: DirectoryRequestMessage): Promise
   }
 }
 
-async function listDirectoryEntries(directoryPath: string, limit: number): Promise<DirectoryEntry[]> {
+async function listDirectoryEntries(
+  directoryPath: string,
+  limit: number,
+): Promise<DirectoryEntry[]> {
   const entries: DirectoryEntry[] = [];
   const dir = await opendir(directoryPath);
   try {
@@ -618,14 +762,18 @@ async function listDirectoryEntries(directoryPath: string, limit: number): Promi
         continue;
       }
       if (stat.isFile()) {
-        entries.push(["f", dirent.name, clampUint32(stat.size), clampUint32(Math.floor(stat.mtimeMs))]);
+        entries.push([
+          "f",
+          dirent.name,
+          clampUint32(stat.size),
+          clampUint32(Math.floor(stat.mtimeMs)),
+        ]);
       }
     }
   } finally {
     try {
       await dir.close();
-    } catch {
-    }
+    } catch {}
   }
 
   return entries;
@@ -642,20 +790,38 @@ async function handleSessionStart(message: StartSessionMessage): Promise<void> {
   }
   appendContinuityLog("session", `start session=${message.s}`);
   const folderPath = message.p ?? ".";
-  const result = await opencodeOrchestrator.initSession(message.s, folderPath, message.j);
-  sendSessionResult(message, result.ok, result.message, result.sessionId, result.uiUrl);
+  const result = await opencodeOrchestrator.initSession(
+    message.s,
+    folderPath,
+    message.j,
+  );
+  sendSessionResult(
+    message,
+    result.ok,
+    result.message,
+    result.sessionId,
+    result.uiUrl,
+  );
   if (result.ok) {
     void refreshPortExposure();
   }
 }
 
-async function handleSessionStatus(message: SessionStatusRequestMessage): Promise<void> {
+async function handleSessionStatus(
+  message: SessionStatusRequestMessage,
+): Promise<void> {
   if (!opencodeOrchestrator) {
     const ws = socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
     }
-    sendJson(ws, { v: WS_PROTOCOL_VERSION, t: "sv", i: message.i, o: 0, m: "daemon_not_ready" });
+    sendJson(ws, {
+      v: WS_PROTOCOL_VERSION,
+      t: "sv",
+      i: message.i,
+      o: 0,
+      m: "daemon_not_ready",
+    });
     return;
   }
   const status = await opencodeOrchestrator.getSessionStatus(message.p);
@@ -677,7 +843,9 @@ async function handleSessionStatus(message: SessionStatusRequestMessage): Promis
   sendJson(ws, response);
 }
 
-async function handleSessionLogRequest(message: SessionLogRequestMessage): Promise<void> {
+async function handleSessionLogRequest(
+  message: SessionLogRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -689,7 +857,8 @@ async function handleSessionLogRequest(message: SessionLogRequestMessage): Promi
   }
 
   const requestedLines = clampInt(message.l, 1, SESSION_LOG_REPLAY_MAX_LINES);
-  const lines = await opencodeOrchestrator.readSessionLogTailLines(requestedLines);
+  const lines =
+    await opencodeOrchestrator.readSessionLogTailLines(requestedLines);
   const replayText = lines.join("\n");
   const chunks = chunkTextForStream(replayText, MAX_STREAM_CHUNK_BYTES);
   for (let index = 0; index < chunks.length; index += 1) {
@@ -704,7 +873,9 @@ async function handleSessionLogRequest(message: SessionLogRequestMessage): Promi
   }
 }
 
-async function handlePortProxyRequest(message: PortProxyRequestMessage): Promise<void> {
+async function handlePortProxyRequest(
+  message: PortProxyRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -723,7 +894,9 @@ async function handlePortProxyRequest(message: PortProxyRequestMessage): Promise
   }
 
   try {
-    const relativePath = message.u.startsWith("/") ? message.u : `/${message.u}`;
+    const relativePath = message.u.startsWith("/")
+      ? message.u
+      : `/${message.u}`;
     const targetUrl = `http://127.0.0.1:${message.p}${relativePath}`;
     const headers = new Headers();
     for (const [name, value] of message.h) {
@@ -799,7 +972,9 @@ async function handlePortProxyRequest(message: PortProxyRequestMessage): Promise
   }
 }
 
-async function handleSetupStatus(message: SetupStatusRequestMessage): Promise<void> {
+async function handleSetupStatus(
+  message: SetupStatusRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -811,9 +986,13 @@ async function handleSetupStatus(message: SetupStatusRequestMessage): Promise<vo
     t: "cg",
     i: message.i,
     o: status.ok ? 1 : 0,
-    ...(status.configured !== undefined ? { c: status.configured ? 1 : 0 } : {}),
+    ...(status.configured !== undefined
+      ? { c: status.configured ? 1 : 0 }
+      : {}),
     ...(status.controlPlaneUrl ? { u: status.controlPlaneUrl } : {}),
-    ...(status.hasAgentAuthToken !== undefined ? { a: status.hasAgentAuthToken ? 1 : 0 } : {}),
+    ...(status.hasAgentAuthToken !== undefined
+      ? { a: status.hasAgentAuthToken ? 1 : 0 }
+      : {}),
     ...(status.opencodeCommand ? { oc: status.opencodeCommand } : {}),
     ...(status.opencodeHost ? { oh: status.opencodeHost } : {}),
     ...(status.opencodeStartPort ? { os: status.opencodeStartPort } : {}),
@@ -825,7 +1004,9 @@ async function handleSetupStatus(message: SetupStatusRequestMessage): Promise<vo
   sendJson(ws, response);
 }
 
-async function handleSetupSave(message: SetupSaveRequestMessage): Promise<void> {
+async function handleSetupSave(
+  message: SetupSaveRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -842,7 +1023,9 @@ async function handleSetupSave(message: SetupSaveRequestMessage): Promise<void> 
   sendJson(ws, response);
 }
 
-async function handleConfigPush(message: ConfigCheckPushRequestMessage): Promise<void> {
+async function handleConfigPush(
+  message: ConfigCheckPushRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -872,7 +1055,9 @@ async function handleConfigPush(message: ConfigCheckPushRequestMessage): Promise
   sendJson(ws, response);
 }
 
-async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage): Promise<{
+async function validateAndApplyConfigPush(
+  message: ConfigCheckPushRequestMessage,
+): Promise<{
   ok: boolean;
   digest: string;
   appliedAt: number;
@@ -885,7 +1070,8 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
   const now = Date.now();
   const policyMode = message.pm ?? "off";
   const phase = message.ph ?? "runtime";
-  const scope = message.sc ?? (phase === "session-init" ? "session-init" : "full");
+  const scope =
+    message.sc ?? (phase === "session-init" ? "session-init" : "full");
 
   if (computedDigest !== message.pd) {
     violations.push("digest_mismatch");
@@ -908,7 +1094,10 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
     violations.push("policy_mode_mismatch");
   }
   if (policyMode === "restricted") {
-    if (!safeApplyPath || safeApplyPath !== CONFIG_RESTRICTED_DEFAULT_APPLY_PATH) {
+    if (
+      !safeApplyPath ||
+      safeApplyPath !== CONFIG_RESTRICTED_DEFAULT_APPLY_PATH
+    ) {
       violations.push("restricted_policy_path_violation");
     }
     if (!message.alg || !message.sg) {
@@ -924,7 +1113,10 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
   }
 
   if (safeApplyPath) {
-    const pathValidation = await validateConfigApplyPathBoundary(safeApplyPath, phase === "runtime");
+    const pathValidation = await validateConfigApplyPathBoundary(
+      safeApplyPath,
+      phase === "runtime",
+    );
     violations.push(...pathValidation.violations);
   }
 
@@ -955,7 +1147,10 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
       providers,
       mcpTools,
     };
-    appendContinuityLog("session", `session-init config accepted template=${message.tid}@${message.tv} digest=${computedDigest}`);
+    appendContinuityLog(
+      "session",
+      `session-init config accepted template=${message.tid}@${message.tv} digest=${computedDigest}`,
+    );
     return {
       ok: true,
       digest: computedDigest,
@@ -966,7 +1161,10 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
     };
   }
 
-  const absoluteTargetPath = path.resolve(ALLOWED_PROJECT_ROOT_REAL, relativeApplyPath);
+  const absoluteTargetPath = path.resolve(
+    ALLOWED_PROJECT_ROOT_REAL,
+    relativeApplyPath,
+  );
   const absoluteParentPath = path.dirname(absoluteTargetPath);
 
   try {
@@ -995,7 +1193,10 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
     }
 
     await atomicWriteJson(absoluteTargetPath, canonical);
-    appendContinuityLog("session", `config applied template=${message.tid}@${message.tv} digest=${computedDigest}`);
+    appendContinuityLog(
+      "session",
+      `config applied template=${message.tid}@${message.tv} digest=${computedDigest}`,
+    );
     return {
       ok: true,
       digest: computedDigest,
@@ -1015,9 +1216,15 @@ async function validateAndApplyConfigPush(message: ConfigCheckPushRequestMessage
   }
 }
 
-async function validateConfigApplyPathBoundary(relativeApplyPath: string, ensureParent: boolean): Promise<{ violations: string[] }> {
+async function validateConfigApplyPathBoundary(
+  relativeApplyPath: string,
+  ensureParent: boolean,
+): Promise<{ violations: string[] }> {
   const violations: string[] = [];
-  const absoluteTargetPath = path.resolve(ALLOWED_PROJECT_ROOT_REAL, relativeApplyPath);
+  const absoluteTargetPath = path.resolve(
+    ALLOWED_PROJECT_ROOT_REAL,
+    relativeApplyPath,
+  );
   const absoluteParentPath = path.dirname(absoluteTargetPath);
 
   if (!isPathWithinRoot(ALLOWED_PROJECT_ROOT_REAL, absoluteTargetPath)) {
@@ -1050,7 +1257,10 @@ async function validateConfigApplyPathBoundary(relativeApplyPath: string, ensure
   return { violations };
 }
 
-function validateSessionInitConfig(config: Record<string, unknown>, violations: string[]): void {
+function validateSessionInitConfig(
+  config: Record<string, unknown>,
+  violations: string[],
+): void {
   if (!hasOnlyKeys(config, ["codenucleus"])) {
     violations.push("session_init_scope_violation");
     return;
@@ -1061,7 +1271,17 @@ function validateSessionInitConfig(config: Record<string, unknown>, violations: 
   }
 
   const codenucleus = config.codenucleus;
-  if (!hasOnlyKeys(codenucleus, ["schemaVersion", "templateId", "templateVersion", "phase", "scope", "policy", "sessionInit"])) {
+  if (
+    !hasOnlyKeys(codenucleus, [
+      "schemaVersion",
+      "templateId",
+      "templateVersion",
+      "phase",
+      "scope",
+      "policy",
+      "sessionInit",
+    ])
+  ) {
     violations.push("session_init_codenucleus_unknown_fields");
   }
   if (codenucleus.phase !== "session-init") {
@@ -1090,11 +1310,18 @@ function validateSessionInitConfig(config: Record<string, unknown>, violations: 
     }
   }
 
-  if (!isObject(payload.mcp) || !hasOnlyKeys(payload.mcp, ["tools"]) || !Array.isArray(payload.mcp.tools)) {
+  if (
+    !isObject(payload.mcp) ||
+    !hasOnlyKeys(payload.mcp, ["tools"]) ||
+    !Array.isArray(payload.mcp.tools)
+  ) {
     violations.push("session_init_mcp_invalid");
   } else {
     for (const tool of payload.mcp.tools) {
-      if (!isObject(tool) || !hasOnlyKeys(tool, ["alias", "serverId", "version", "type", "status"])) {
+      if (
+        !isObject(tool) ||
+        !hasOnlyKeys(tool, ["alias", "serverId", "version", "type", "status"])
+      ) {
         violations.push("session_init_mcp_scope_violation");
         break;
       }
@@ -1110,7 +1337,11 @@ function validateSessionInitConfig(config: Record<string, unknown>, violations: 
       if (tool.type !== "remote") {
         violations.push("session_init_mcp_type_invalid");
       }
-      if (tool.status !== "disabled" && tool.status !== "ask" && tool.status !== "allow") {
+      if (
+        tool.status !== "disabled" &&
+        tool.status !== "ask" &&
+        tool.status !== "allow"
+      ) {
         violations.push("session_init_mcp_status_invalid");
       }
     }
@@ -1120,28 +1351,59 @@ function validateSessionInitConfig(config: Record<string, unknown>, violations: 
     violations.push("session_init_routing_invalid");
   }
 
-  const forbidden = collectForbiddenFieldPaths(config, new Set(["url", "urls", "header", "headers", "command", "commands", "executable", "exec", "env", "secret", "secrets", "token", "tokens", "runtime"]));
+  const forbidden = collectForbiddenFieldPaths(
+    config,
+    new Set([
+      "url",
+      "urls",
+      "header",
+      "headers",
+      "command",
+      "commands",
+      "executable",
+      "exec",
+      "env",
+      "secret",
+      "secrets",
+      "token",
+      "tokens",
+      "runtime",
+    ]),
+  );
   for (const pathText of forbidden) {
     violations.push(`forbidden_field:${pathText}`);
   }
 }
 
 function readSessionInitProviders(config: Record<string, unknown>): string[] {
-  if (!isObject(config.codenucleus) || !isObject(config.codenucleus.sessionInit) || !Array.isArray(config.codenucleus.sessionInit.providers)) {
+  if (
+    !isObject(config.codenucleus) ||
+    !isObject(config.codenucleus.sessionInit) ||
+    !Array.isArray(config.codenucleus.sessionInit.providers)
+  ) {
     return [];
   }
-  return config.codenucleus.sessionInit.providers.filter((entry): entry is string => typeof entry === "string").slice(0, 64);
+  return config.codenucleus.sessionInit.providers
+    .filter((entry): entry is string => typeof entry === "string")
+    .slice(0, 64);
 }
 
-function readSessionInitMcpTools(config: Record<string, unknown>): Array<{ alias: string; status: "disabled" | "ask" | "allow" }> {
-  if (!isObject(config.codenucleus) || !isObject(config.codenucleus.sessionInit) || !isObject(config.codenucleus.sessionInit.mcp)) {
+function readSessionInitMcpTools(
+  config: Record<string, unknown>,
+): Array<{ alias: string; status: "disabled" | "ask" | "allow" }> {
+  if (
+    !isObject(config.codenucleus) ||
+    !isObject(config.codenucleus.sessionInit) ||
+    !isObject(config.codenucleus.sessionInit.mcp)
+  ) {
     return [];
   }
   const tools = config.codenucleus.sessionInit.mcp.tools;
   if (!Array.isArray(tools)) {
     return [];
   }
-  const out: Array<{ alias: string; status: "disabled" | "ask" | "allow" }> = [];
+  const out: Array<{ alias: string; status: "disabled" | "ask" | "allow" }> =
+    [];
   for (const tool of tools) {
     if (!isObject(tool) || typeof tool.alias !== "string") {
       continue;
@@ -1155,11 +1417,21 @@ function readSessionInitMcpTools(config: Record<string, unknown>): Array<{ alias
   return out.slice(0, 128);
 }
 
-function collectForbiddenFieldPaths(value: unknown, forbiddenKeys: Set<string>, pathPrefix = "cfg"): string[] {
+function collectForbiddenFieldPaths(
+  value: unknown,
+  forbiddenKeys: Set<string>,
+  pathPrefix = "cfg",
+): string[] {
   if (Array.isArray(value)) {
     const out: string[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      out.push(...collectForbiddenFieldPaths(value[index], forbiddenKeys, `${pathPrefix}[${index}]`));
+      out.push(
+        ...collectForbiddenFieldPaths(
+          value[index],
+          forbiddenKeys,
+          `${pathPrefix}[${index}]`,
+        ),
+      );
     }
     return out;
   }
@@ -1172,27 +1444,36 @@ function collectForbiddenFieldPaths(value: unknown, forbiddenKeys: Set<string>, 
     if (forbiddenKeys.has(key.toLowerCase())) {
       out.push(`${pathPrefix}.${key}`);
     }
-    out.push(...collectForbiddenFieldPaths(nested, forbiddenKeys, `${pathPrefix}.${key}`));
+    out.push(
+      ...collectForbiddenFieldPaths(
+        nested,
+        forbiddenKeys,
+        `${pathPrefix}.${key}`,
+      ),
+    );
   }
   return out;
 }
 
-async function atomicWriteJson(targetPath: string, canonicalJson: string): Promise<void> {
+async function atomicWriteJson(
+  targetPath: string,
+  canonicalJson: string,
+): Promise<void> {
   const tempPath = `${targetPath}.tmp-${randomToken(8)}`;
   const body = `${canonicalJson}\n`;
   await writeFile(tempPath, body, { encoding: "utf8", mode: 0o600 });
   try {
     await rename(tempPath, targetPath);
   } catch {
-    await unlink(targetPath).catch(() => {
-    });
+    await unlink(targetPath).catch(() => {});
     await rename(tempPath, targetPath);
   }
-  await chmod(targetPath, 0o600).catch(() => {
-  });
+  await chmod(targetPath, 0o600).catch(() => {});
 }
 
-async function handleSessionTerminate(message: TerminateSessionMessage): Promise<void> {
+async function handleSessionTerminate(
+  message: TerminateSessionMessage,
+): Promise<void> {
   if (!opencodeOrchestrator) {
     sendSessionResult(message, false, "daemon_not_ready");
     return;
@@ -1205,7 +1486,9 @@ async function handleSessionTerminate(message: TerminateSessionMessage): Promise
   sendSessionResult(message, result.ok, result.message);
 }
 
-async function handleJitKillSwitch(message: JitKillSwitchRequestMessage): Promise<void> {
+async function handleJitKillSwitch(
+  message: JitKillSwitchRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -1299,11 +1582,17 @@ function sanitizeRelativePath(input: string): string | null {
     return ".";
   }
 
-  const withoutDotPrefix = normalized.startsWith("./") ? normalized.slice(2) : normalized;
+  const withoutDotPrefix = normalized.startsWith("./")
+    ? normalized.slice(2)
+    : normalized;
   if (withoutDotPrefix === "") {
     return ".";
   }
-  if (withoutDotPrefix.startsWith("/") || withoutDotPrefix.startsWith("\\") || /^[A-Za-z]:/.test(withoutDotPrefix)) {
+  if (
+    withoutDotPrefix.startsWith("/") ||
+    withoutDotPrefix.startsWith("\\") ||
+    /^[A-Za-z]:/.test(withoutDotPrefix)
+  ) {
     return null;
   }
 
@@ -1382,7 +1671,11 @@ function isValidJitEnvPairs(value: unknown): value is Array<[string, string]> {
       return false;
     }
     seen.add(name);
-    if (typeof rawValue !== "string" || rawValue.length === 0 || rawValue.includes("\0")) {
+    if (
+      typeof rawValue !== "string" ||
+      rawValue.length === 0 ||
+      rawValue.includes("\0")
+    ) {
       return false;
     }
     if (Buffer.byteLength(rawValue, "utf8") > SESSION_JIT_ENV_MAX_VALUE_BYTES) {
@@ -1408,7 +1701,9 @@ function toCanonicalJson(value: unknown): string {
 }
 
 function computeCanonicalDigest(value: unknown): string {
-  return createHash("sha256").update(toCanonicalJson(value)).digest("base64url");
+  return createHash("sha256")
+    .update(toCanonicalJson(value))
+    .digest("base64url");
 }
 
 function sortValue(value: unknown): unknown {
@@ -1417,7 +1712,9 @@ function sortValue(value: unknown): unknown {
   }
   if (isObject(value)) {
     const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort((left, right) => left.localeCompare(right))) {
+    for (const key of Object.keys(value).sort((left, right) =>
+      left.localeCompare(right),
+    )) {
       sorted[key] = sortValue(value[key]);
     }
     return sorted;
@@ -1427,7 +1724,10 @@ function sortValue(value: unknown): unknown {
 
 function isPathWithinRoot(rootPath: string, targetPath: string): boolean {
   const relative = path.relative(rootPath, targetPath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 function isSafeEntryName(name: string): boolean {
@@ -1616,8 +1916,11 @@ async function handleRename(message: RenameRequestMessage): Promise<void> {
     const rootRealPath = await realpath(rootPath);
     const sourceRealPath = await realpath(sourcePath);
     const destDirPath = await realpath(path.dirname(destPath));
-    
-    if (!isPathWithinRoot(rootRealPath, sourceRealPath) || !isPathWithinRoot(rootRealPath, destDirPath)) {
+
+    if (
+      !isPathWithinRoot(rootRealPath, sourceRealPath) ||
+      !isPathWithinRoot(rootRealPath, destDirPath)
+    ) {
       sendError(ws, "ROOT", message.i);
       return;
     }
@@ -1637,7 +1940,9 @@ async function handleRename(message: RenameRequestMessage): Promise<void> {
 }
 
 // Git Handlers
-async function handleGitStatus(message: GitStatusRequestMessage): Promise<void> {
+async function handleGitStatus(
+  message: GitStatusRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -1660,29 +1965,35 @@ async function handleGitStatus(message: GitStatusRequestMessage): Promise<void> 
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
     }
 
     // Execute git status
-    const result = await execGitCommand(targetPath, ["status", "--porcelain", "-b"], message.i);
-    const lines = result.stdout.split("\n").filter(line => line.length > 0);
-    
-    const branchLine = lines.find(line => line.startsWith("##"));
-    const branch = branchLine ? branchLine.replace("## ", "").split("...")[0] : "unknown";
-    
+    const result = await execGitCommand(
+      targetPath,
+      ["status", "--porcelain", "-b"],
+      message.i,
+    );
+    const lines = result.stdout.split("\n").filter((line) => line.length > 0);
+
+    const branchLine = lines.find((line) => line.startsWith("##"));
+    const branch = branchLine
+      ? branchLine.replace("## ", "").split("...")[0]
+      : "unknown";
+
     const added: string[] = [];
     const modified: string[] = [];
     const untracked: string[] = [];
     const deleted: string[] = [];
-    
+
     for (const line of lines) {
       if (line.startsWith("##")) continue;
       const status = line.substring(0, 2);
       const filename = line.substring(3);
-      
+
       if (status.includes("A")) added.push(filename);
       else if (status.includes("M")) modified.push(filename);
       else if (status.includes("?")) untracked.push(filename);
@@ -1738,14 +2049,14 @@ async function handleGitInit(message: GitInitRequestMessage): Promise<void> {
     const rootRealPath = await realpath(rootPath);
     await mkdir(targetPath, { recursive: true });
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
     }
 
     const result = await execGitCommand(targetPath, ["init"], message.i);
-    
+
     const response: GitInitResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gj",
@@ -1823,9 +2134,10 @@ async function handleGitClone(message: GitCloneRequestMessage): Promise<void> {
       cloneCwd = targetRealPath;
       cloneDestination = ".";
     } catch (error) {
-      const code = error && typeof error === "object" && "code" in error
-        ? String((error as { code: unknown }).code)
-        : "";
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "";
       if (code !== "ENOENT" && code !== "ENOTDIR") {
         throw error;
       }
@@ -1849,7 +2161,7 @@ async function handleGitClone(message: GitCloneRequestMessage): Promise<void> {
     }
 
     const result = await execGitCommand(cloneCwd, args, message.i);
-    
+
     const response: GitCloneResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gl",
@@ -1894,7 +2206,7 @@ async function handleGitAdd(message: GitAddRequestMessage): Promise<void> {
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
@@ -1908,9 +2220,9 @@ async function handleGitAdd(message: GitAddRequestMessage): Promise<void> {
     } else {
       args.push(".");
     }
-    
+
     const result = await execGitCommand(targetPath, args, message.i);
-    
+
     const response: GitAddResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gb",
@@ -1932,7 +2244,9 @@ async function handleGitAdd(message: GitAddRequestMessage): Promise<void> {
   }
 }
 
-async function handleGitCommit(message: GitCommitRequestMessage): Promise<void> {
+async function handleGitCommit(
+  message: GitCommitRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -1955,7 +2269,7 @@ async function handleGitCommit(message: GitCommitRequestMessage): Promise<void> 
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
@@ -1965,11 +2279,11 @@ async function handleGitCommit(message: GitCommitRequestMessage): Promise<void> 
     if (message.a) {
       args.push("-a");
     }
-    
+
     const result = await execGitCommand(targetPath, args, message.i);
     const hashMatch = result.stdout.match(/\[.+\s([a-f0-9]+)\]/);
     const hash = hashMatch ? hashMatch[1] : undefined;
-    
+
     const response: GitCommitResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "go",
@@ -2015,7 +2329,7 @@ async function handleGitPush(message: GitPushRequestMessage): Promise<void> {
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
@@ -2028,9 +2342,9 @@ async function handleGitPush(message: GitPushRequestMessage): Promise<void> {
     if (message.b) {
       args.push(message.b);
     }
-    
+
     const result = await execGitCommand(targetPath, args, message.i);
-    
+
     const response: GitPushResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gd",
@@ -2075,7 +2389,7 @@ async function handleGitPull(message: GitPullRequestMessage): Promise<void> {
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
@@ -2088,9 +2402,9 @@ async function handleGitPull(message: GitPullRequestMessage): Promise<void> {
     if (message.b) {
       args.push(message.b);
     }
-    
+
     const result = await execGitCommand(targetPath, args, message.i);
-    
+
     const response: GitPullResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gn",
@@ -2112,7 +2426,9 @@ async function handleGitPull(message: GitPullRequestMessage): Promise<void> {
   }
 }
 
-async function handleGitBranch(message: GitBranchRequestMessage): Promise<void> {
+async function handleGitBranch(
+  message: GitBranchRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -2135,25 +2451,27 @@ async function handleGitBranch(message: GitBranchRequestMessage): Promise<void> 
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
     }
 
     const action = message.a || "list";
-      let result;
-    
+    let result;
+
     if (action === "list") {
       result = await execGitCommand(targetPath, ["branch", "-a"], message.i);
-      const branches = result.stdout.split("\n")
-        .filter(line => line.trim().length > 0)
-        .map(line => line.replace(/^[*\s]+/, "").trim());
-      const current = result.stdout.split("\n")
-        .find(line => line.startsWith("*"))
+      const branches = result.stdout
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => line.replace(/^[*\s]+/, "").trim());
+      const current = result.stdout
+        .split("\n")
+        .find((line) => line.startsWith("*"))
         ?.replace(/^\*\s+/, "")
         ?.trim();
-      
+
       const response: GitBranchResponseMessage = {
         v: WS_PROTOCOL_VERSION,
         t: "gu",
@@ -2164,7 +2482,11 @@ async function handleGitBranch(message: GitBranchRequestMessage): Promise<void> 
       };
       sendJson(ws, response);
     } else if (action === "create" && message.n) {
-      const createResult = await execGitCommand(targetPath, ["branch", message.n], message.i);
+      const createResult = await execGitCommand(
+        targetPath,
+        ["branch", message.n],
+        message.i,
+      );
       const response: GitBranchResponseMessage = {
         v: WS_PROTOCOL_VERSION,
         t: "gu",
@@ -2174,7 +2496,11 @@ async function handleGitBranch(message: GitBranchRequestMessage): Promise<void> 
       };
       sendJson(ws, response);
     } else if (action === "delete" && message.n) {
-      const deleteResult = await execGitCommand(targetPath, ["branch", "-d", message.n], message.i);
+      const deleteResult = await execGitCommand(
+        targetPath,
+        ["branch", "-d", message.n],
+        message.i,
+      );
       const response: GitBranchResponseMessage = {
         v: WS_PROTOCOL_VERSION,
         t: "gu",
@@ -2199,7 +2525,9 @@ async function handleGitBranch(message: GitBranchRequestMessage): Promise<void> 
   }
 }
 
-async function handleGitCheckout(message: GitCheckoutRequestMessage): Promise<void> {
+async function handleGitCheckout(
+  message: GitCheckoutRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -2222,7 +2550,7 @@ async function handleGitCheckout(message: GitCheckoutRequestMessage): Promise<vo
   try {
     const rootRealPath = await realpath(rootPath);
     const targetRealPath = await realpath(targetPath);
-    
+
     if (!isPathWithinRoot(rootRealPath, targetRealPath)) {
       sendError(ws, "ROOT", message.i);
       return;
@@ -2233,9 +2561,9 @@ async function handleGitCheckout(message: GitCheckoutRequestMessage): Promise<vo
       args.push("-b");
     }
     args.push(message.b);
-    
+
     const result = await execGitCommand(targetPath, args, message.i);
-    
+
     const response: GitCheckoutResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "gy",
@@ -2257,7 +2585,9 @@ async function handleGitCheckout(message: GitCheckoutRequestMessage): Promise<vo
   }
 }
 
-async function handleGitConfig(message: GitConfigRequestMessage): Promise<void> {
+async function handleGitConfig(
+  message: GitConfigRequestMessage,
+): Promise<void> {
   const ws = socket;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -2334,13 +2664,25 @@ async function handleGitConfig(message: GitConfigRequestMessage): Promise<void> 
     }
 
     if (name) {
-      await execGitCommand(targetRealPath, ["config", ...scopeArgs, "user.name", name], message.i);
+      await execGitCommand(
+        targetRealPath,
+        ["config", ...scopeArgs, "user.name", name],
+        message.i,
+      );
     }
     if (email) {
-      await execGitCommand(targetRealPath, ["config", ...scopeArgs, "user.email", email], message.i);
+      await execGitCommand(
+        targetRealPath,
+        ["config", ...scopeArgs, "user.email", email],
+        message.i,
+      );
     }
     if (message.cm === 1) {
-      await execGitCommand(targetRealPath, ["config", "--global", "credential.helper", "manager-core"], message.i);
+      await execGitCommand(
+        targetRealPath,
+        ["config", "--global", "credential.helper", "manager-core"],
+        message.i,
+      );
     }
 
     const updated = await readGitConfigSnapshot(targetRealPath, message.i);
@@ -2372,12 +2714,37 @@ async function handleGitConfig(message: GitConfigRequestMessage): Promise<void> 
 async function readGitConfigSnapshot(
   cwd: string,
   requestId?: number,
-): Promise<{ name?: string; email?: string; helper?: string; authReady: 0 | 1 }> {
-  const nameLocal = await readGitConfigValue(cwd, ["config", "--local", "--get", "user.name"], requestId);
-  const nameGlobal = await readGitConfigValue(cwd, ["config", "--global", "--get", "user.name"], requestId);
-  const emailLocal = await readGitConfigValue(cwd, ["config", "--local", "--get", "user.email"], requestId);
-  const emailGlobal = await readGitConfigValue(cwd, ["config", "--global", "--get", "user.email"], requestId);
-  const helperGlobal = await readGitConfigValue(cwd, ["config", "--global", "--get", "credential.helper"], requestId);
+): Promise<{
+  name?: string;
+  email?: string;
+  helper?: string;
+  authReady: 0 | 1;
+}> {
+  const nameLocal = await readGitConfigValue(
+    cwd,
+    ["config", "--local", "--get", "user.name"],
+    requestId,
+  );
+  const nameGlobal = await readGitConfigValue(
+    cwd,
+    ["config", "--global", "--get", "user.name"],
+    requestId,
+  );
+  const emailLocal = await readGitConfigValue(
+    cwd,
+    ["config", "--local", "--get", "user.email"],
+    requestId,
+  );
+  const emailGlobal = await readGitConfigValue(
+    cwd,
+    ["config", "--global", "--get", "user.email"],
+    requestId,
+  );
+  const helperGlobal = await readGitConfigValue(
+    cwd,
+    ["config", "--global", "--get", "credential.helper"],
+    requestId,
+  );
 
   const name = nameLocal ?? nameGlobal;
   const email = emailLocal ?? emailGlobal;
@@ -2390,7 +2757,11 @@ async function readGitConfigSnapshot(
   };
 }
 
-async function readGitConfigValue(cwd: string, args: string[], requestId?: number): Promise<string | undefined> {
+async function readGitConfigValue(
+  cwd: string,
+  args: string[],
+  requestId?: number,
+): Promise<string | undefined> {
   try {
     const result = await execGitCommand(cwd, args, requestId);
     const value = result.stdout.trim();
@@ -2411,7 +2782,11 @@ type GitCommandResult = {
 };
 
 // Git Helper Function
-async function execGitCommand(cwd: string, args: string[], requestId?: number): Promise<GitCommandResult> {
+async function execGitCommand(
+  cwd: string,
+  args: string[],
+  requestId?: number,
+): Promise<GitCommandResult> {
   const renderedArgs = renderGitArgsForLog(args);
   log(`git start cwd=${cwd} args=${renderedArgs}`);
   appendContinuityLog("git", `$ git ${renderedArgs}`);
@@ -2426,7 +2801,7 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
         GIT_TERMINAL_PROMPT: "0",
       },
     });
-    
+
     let stdout = "";
     let stderr = "";
     let didTimeout = false;
@@ -2443,7 +2818,11 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
       if (emittedLines >= GIT_LOG_MAX_LINES) {
         if (!outputTruncated) {
           outputTruncated = true;
-          emitGitLog(requestId, "meta", `additional git output truncated after ${GIT_LOG_MAX_LINES} lines`);
+          emitGitLog(
+            requestId,
+            "meta",
+            `additional git output truncated after ${GIT_LOG_MAX_LINES} lines`,
+          );
         }
         return;
       }
@@ -2452,7 +2831,9 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
     };
 
     const processChunk = (stream: "out" | "err", chunk: string): void => {
-      const next = (stream === "out" ? stdoutTail : stderrTail) + chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const next =
+        (stream === "out" ? stdoutTail : stderrTail) +
+        chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       const parts = next.split("\n");
       const tail = parts.pop() ?? "";
       for (const line of parts) {
@@ -2481,28 +2862,32 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
       child.kill();
     }, GIT_COMMAND_TIMEOUT_MS);
     timeout.unref();
-    
+
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
       processChunk("out", chunk);
     });
-    
+
     child.stderr?.on("data", (data) => {
       const chunk = data.toString();
       stderr += chunk;
       processChunk("err", chunk);
     });
-    
+
     child.on("close", (code) => {
       clearTimeout(timeout);
       flushTail();
       const summary = summarizeGitOutput(stdout, stderr);
       if (code !== 0) {
-        const message = summary ?? (didTimeout
-          ? `Git command timed out after ${GIT_COMMAND_TIMEOUT_MS}ms`
-          : `Git command failed with exit code ${code}`);
-        log(`git failed cwd=${cwd} args=${renderedArgs} code=${code ?? "null"} output=${singleLine(message)}`);
+        const message =
+          summary ??
+          (didTimeout
+            ? `Git command timed out after ${GIT_COMMAND_TIMEOUT_MS}ms`
+            : `Git command failed with exit code ${code}`);
+        log(
+          `git failed cwd=${cwd} args=${renderedArgs} code=${code ?? "null"} output=${singleLine(message)}`,
+        );
         emitGitLog(requestId, didTimeout ? "meta" : "err", message);
         const error = new Error(message) as Error & {
           stdout?: string;
@@ -2517,8 +2902,13 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
         reject(error);
       } else {
         if (summary) {
-          log(`git done cwd=${cwd} args=${renderedArgs} output=${singleLine(summary)}`);
-          appendContinuityLog("git", `done ${renderedArgs} output=${singleLine(summary)}`);
+          log(
+            `git done cwd=${cwd} args=${renderedArgs} output=${singleLine(summary)}`,
+          );
+          appendContinuityLog(
+            "git",
+            `done ${renderedArgs} output=${singleLine(summary)}`,
+          );
         } else {
           log(`git done cwd=${cwd} args=${renderedArgs}`);
           appendContinuityLog("git", `done ${renderedArgs}`);
@@ -2527,20 +2917,34 @@ async function execGitCommand(cwd: string, args: string[], requestId?: number): 
         resolve(summary ? { stdout, stderr, summary } : { stdout, stderr });
       }
     });
-    
+
     child.on("error", (err) => {
       clearTimeout(timeout);
-      log(`git spawn error cwd=${cwd} args=${renderedArgs} error=${err.message}`);
-      appendContinuityLog("git", `spawn_error ${renderedArgs} error=${singleLine(err.message)}`);
+      log(
+        `git spawn error cwd=${cwd} args=${renderedArgs} error=${err.message}`,
+      );
+      appendContinuityLog(
+        "git",
+        `spawn_error ${renderedArgs} error=${singleLine(err.message)}`,
+      );
       emitGitLog(requestId, "err", err.message);
       reject(err);
     });
   });
 }
 
-function emitGitLog(requestId: number | undefined, stream: GitLogMessage["s"], message: string): void {
+function emitGitLog(
+  requestId: number | undefined,
+  stream: GitLogMessage["s"],
+  message: string,
+): void {
   const ws = socket;
-  if (!ws || ws.readyState !== WebSocket.OPEN || !handshakeComplete || requestId === undefined) {
+  if (
+    !ws ||
+    ws.readyState !== WebSocket.OPEN ||
+    !handshakeComplete ||
+    requestId === undefined
+  ) {
     return;
   }
   const text = normalizeGitLogLine(message);
@@ -2560,7 +2964,10 @@ function emitGitLog(requestId: number | undefined, stream: GitLogMessage["s"], m
 
 function normalizeGitLogLine(value: string): string {
   const noAnsi = value.replace(/\u001b\[[0-9;]*m/g, "");
-  const redacted = redactSensitiveText(noAnsi).replace(/(https?:\/\/)([^/\s:@]+):([^@\s]+)@/gi, "$1***:***@");
+  const redacted = redactSensitiveText(noAnsi).replace(
+    /(https?:\/\/)([^/\s:@]+):([^@\s]+)@/gi,
+    "$1***:***@",
+  );
   const collapsed = redacted.replace(/\s+/g, " ").trim();
   if (!collapsed) {
     return "";
@@ -2568,8 +2975,14 @@ function normalizeGitLogLine(value: string): string {
   return truncateText(collapsed, 500);
 }
 
-function summarizeGitOutput(stdout: string, stderr: string): string | undefined {
-  const joined = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n").trim();
+function summarizeGitOutput(
+  stdout: string,
+  stderr: string,
+): string | undefined {
+  const joined = [stderr.trim(), stdout.trim()]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
   if (!joined) {
     return undefined;
   }
@@ -2613,7 +3026,13 @@ function chunkTextForStream(text: string, maxBytes: number): string[] {
 
 function isAllowedProxyRequestHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  if (lower === "host" || lower === "connection" || lower === "upgrade" || lower === "content-length" || lower === "cookie") {
+  if (
+    lower === "host" ||
+    lower === "connection" ||
+    lower === "upgrade" ||
+    lower === "content-length" ||
+    lower === "cookie"
+  ) {
     return false;
   }
   if (lower.startsWith("sec-websocket")) {
@@ -2635,10 +3054,12 @@ function toProxyHeaderEntries(headers: Headers): ProxyHeaderEntry[] {
 }
 
 function renderGitArgsForLog(args: string[]): string {
-  return args.map((arg) => {
-    const redacted = redactGitArg(arg);
-    return /\s/.test(redacted) ? JSON.stringify(redacted) : redacted;
-  }).join(" ");
+  return args
+    .map((arg) => {
+      const redacted = redactGitArg(arg);
+      return /\s/.test(redacted) ? JSON.stringify(redacted) : redacted;
+    })
+    .join(" ");
 }
 
 function redactGitArg(arg: string): string {
@@ -2696,7 +3117,10 @@ function parseDirectoryRequest(value: unknown): DirectoryRequestMessage | null {
   if (!isInteger(value.l) || value.l < 1 || value.l > MAX_DIRECTORY_LIMIT) {
     return null;
   }
-  if (value.k !== undefined && (typeof value.k !== "string" || value.k.length > 128)) {
+  if (
+    value.k !== undefined &&
+    (typeof value.k !== "string" || value.k.length > 128)
+  ) {
     return null;
   }
   return value as unknown as DirectoryRequestMessage;
@@ -2715,7 +3139,10 @@ function parseStartSession(value: unknown): StartSessionMessage | null {
   if (!isUint32(value.i) || !matches(value.s, /^[A-Za-z0-9_-]{1,64}$/)) {
     return null;
   }
-  if (value.p !== undefined && (typeof value.p !== "string" || value.p.length > 512)) {
+  if (
+    value.p !== undefined &&
+    (typeof value.p !== "string" || value.p.length > 512)
+  ) {
     return null;
   }
   if (value.j !== undefined && !isValidSessionJitCredential(value.j)) {
@@ -2724,14 +3151,20 @@ function parseStartSession(value: unknown): StartSessionMessage | null {
   return value as unknown as StartSessionMessage;
 }
 
-function isValidSessionJitCredential(value: unknown): value is SessionJitCredential {
+function isValidSessionJitCredential(
+  value: unknown,
+): value is SessionJitCredential {
   if (!isObject(value)) {
     return false;
   }
   if (!hasOnlyKeys(value, ["t", "e", "s", "n", "r", "v"])) {
     return false;
   }
-  if (typeof value.t !== "string" || value.t.length < 16 || value.t.length > 2048) {
+  if (
+    typeof value.t !== "string" ||
+    value.t.length < 16 ||
+    value.t.length > 2048
+  ) {
     return false;
   }
   if (!isInteger(value.e)) {
@@ -2741,10 +3174,16 @@ function isValidSessionJitCredential(value: unknown): value is SessionJitCredent
   if (value.e < now - 10000 || value.e > now + SESSION_JIT_MAX_TTL_MS) {
     return false;
   }
-  if (value.s !== undefined && (typeof value.s !== "string" || value.s.length < 1 || value.s.length > 128)) {
+  if (
+    value.s !== undefined &&
+    (typeof value.s !== "string" || value.s.length < 1 || value.s.length > 128)
+  ) {
     return false;
   }
-  if (value.n !== undefined && (typeof value.n !== "string" || !isJitAllowedEnvVarName(value.n))) {
+  if (
+    value.n !== undefined &&
+    (typeof value.n !== "string" || !isJitAllowedEnvVarName(value.n))
+  ) {
     return false;
   }
   if (value.r !== undefined && !matches(value.r, /^[A-Za-z0-9._:-]{1,128}$/)) {
@@ -2756,7 +3195,9 @@ function isValidSessionJitCredential(value: unknown): value is SessionJitCredent
   return true;
 }
 
-function parseJitKillSwitchRequest(value: unknown): JitKillSwitchRequestMessage | null {
+function parseJitKillSwitchRequest(
+  value: unknown,
+): JitKillSwitchRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -2778,13 +3219,18 @@ function parseJitKillSwitchRequest(value: unknown): JitKillSwitchRequestMessage 
   if (value.x !== undefined && value.x !== 0 && value.x !== 1) {
     return null;
   }
-  if (value.m !== undefined && (typeof value.m !== "string" || value.m.length > 128)) {
+  if (
+    value.m !== undefined &&
+    (typeof value.m !== "string" || value.m.length > 128)
+  ) {
     return null;
   }
   return value as unknown as JitKillSwitchRequestMessage;
 }
 
-function parseSessionStatusRequest(value: unknown): SessionStatusRequestMessage | null {
+function parseSessionStatusRequest(
+  value: unknown,
+): SessionStatusRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -2803,7 +3249,9 @@ function parseSessionStatusRequest(value: unknown): SessionStatusRequestMessage 
   return value as unknown as SessionStatusRequestMessage;
 }
 
-function parseSessionLogRequest(value: unknown): SessionLogRequestMessage | null {
+function parseSessionLogRequest(
+  value: unknown,
+): SessionLogRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -2819,7 +3267,11 @@ function parseSessionLogRequest(value: unknown): SessionLogRequestMessage | null
   if (!matches(value.x, /^[A-Za-z0-9_-]{8,24}$/)) {
     return null;
   }
-  if (!isInteger(value.l) || value.l < 1 || value.l > SESSION_LOG_REPLAY_MAX_LINES) {
+  if (
+    !isInteger(value.l) ||
+    value.l < 1 ||
+    value.l > SESSION_LOG_REPLAY_MAX_LINES
+  ) {
     return null;
   }
   return value as unknown as SessionLogRequestMessage;
@@ -2844,13 +3296,24 @@ function parsePortProxyRequest(value: unknown): PortProxyRequestMessage | null {
   if (!matches(value.m, /^[A-Z]{3,10}$/)) {
     return null;
   }
-  if (typeof value.u !== "string" || value.u.length < 1 || value.u.length > 2048) {
+  if (
+    typeof value.u !== "string" ||
+    value.u.length < 1 ||
+    value.u.length > 2048
+  ) {
     return null;
   }
-  if (!Array.isArray(value.h) || value.h.length > 64 || !value.h.every(isProxyHeaderEntry)) {
+  if (
+    !Array.isArray(value.h) ||
+    value.h.length > 64 ||
+    !value.h.every(isProxyHeaderEntry)
+  ) {
     return null;
   }
-  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > 2_000_000)) {
+  if (
+    value.b !== undefined &&
+    (typeof value.b !== "string" || value.b.length > 2_000_000)
+  ) {
     return null;
   }
   return value as unknown as PortProxyRequestMessage;
@@ -2870,7 +3333,9 @@ function isProxyHeaderEntry(value: unknown): value is ProxyHeaderEntry {
   return headerValue.length <= 4096;
 }
 
-function parseSetupStatusRequest(value: unknown): SetupStatusRequestMessage | null {
+function parseSetupStatusRequest(
+  value: unknown,
+): SetupStatusRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -2890,7 +3355,21 @@ function parseSetupSaveRequest(value: unknown): SetupSaveRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
-  if (!hasOnlyKeys(value, ["v", "t", "i", "u", "a", "oc", "oh", "os", "op", "om", "rt"])) {
+  if (
+    !hasOnlyKeys(value, [
+      "v",
+      "t",
+      "i",
+      "u",
+      "a",
+      "oc",
+      "oh",
+      "os",
+      "op",
+      "om",
+      "rt",
+    ])
+  ) {
     return null;
   }
   if (value.v !== WS_PROTOCOL_VERSION || value.t !== "cu") {
@@ -2905,44 +3384,94 @@ function parseSetupSaveRequest(value: unknown): SetupSaveRequestMessage | null {
   if (typeof value.a !== "string" || value.a.length > 512) {
     return null;
   }
-  if (value.oc !== undefined && (typeof value.oc !== "string" || value.oc.length > 256)) {
+  if (
+    value.oc !== undefined &&
+    (typeof value.oc !== "string" || value.oc.length > 256)
+  ) {
     return null;
   }
-  if (value.oh !== undefined && (typeof value.oh !== "string" || value.oh.length > 128)) {
+  if (
+    value.oh !== undefined &&
+    (typeof value.oh !== "string" || value.oh.length > 128)
+  ) {
     return null;
   }
-  if (value.os !== undefined && (!isInteger(value.os) || value.os < 1 || value.os > 65535)) {
+  if (
+    value.os !== undefined &&
+    (!isInteger(value.os) || value.os < 1 || value.os > 65535)
+  ) {
     return null;
   }
-  if (value.op !== undefined && (typeof value.op !== "string" || value.op.length > 128)) {
+  if (
+    value.op !== undefined &&
+    (typeof value.op !== "string" || value.op.length > 128)
+  ) {
     return null;
   }
-  if (value.om !== undefined && (typeof value.om !== "string" || value.om.length > 128)) {
+  if (
+    value.om !== undefined &&
+    (typeof value.om !== "string" || value.om.length > 128)
+  ) {
     return null;
   }
-  if (value.rt !== undefined && (!isInteger(value.rt) || value.rt < 1000 || value.rt > 120000)) {
+  if (
+    value.rt !== undefined &&
+    (!isInteger(value.rt) || value.rt < 1000 || value.rt > 120000)
+  ) {
     return null;
   }
   return value as unknown as SetupSaveRequestMessage;
 }
 
-function parseConfigCheckRequest(value: unknown): ConfigCheckPushRequestMessage | null {
+function parseConfigCheckRequest(
+  value: unknown,
+): ConfigCheckPushRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
-  if (!hasOnlyKeys(value, ["v", "t", "i", "k", "ph", "sc", "tid", "tv", "ts", "ap", "pd", "alg", "sg", "pm", "cfg"])) {
+  if (
+    !hasOnlyKeys(value, [
+      "v",
+      "t",
+      "i",
+      "k",
+      "ph",
+      "sc",
+      "tid",
+      "tv",
+      "ts",
+      "ap",
+      "pd",
+      "alg",
+      "sg",
+      "pm",
+      "cfg",
+    ])
+  ) {
     return null;
   }
-  if (value.v !== WS_PROTOCOL_VERSION || value.t !== "cc" || value.k !== "cfg") {
+  if (
+    value.v !== WS_PROTOCOL_VERSION ||
+    value.t !== "cc" ||
+    value.k !== "cfg"
+  ) {
     return null;
   }
   if (!isUint32(value.i)) {
     return null;
   }
-  if (value.ph !== undefined && value.ph !== "session-init" && value.ph !== "runtime") {
+  if (
+    value.ph !== undefined &&
+    value.ph !== "session-init" &&
+    value.ph !== "runtime"
+  ) {
     return null;
   }
-  if (value.sc !== undefined && value.sc !== "session-init" && value.sc !== "full") {
+  if (
+    value.sc !== undefined &&
+    value.sc !== "session-init" &&
+    value.sc !== "full"
+  ) {
     return null;
   }
   if (!matches(value.tid, /^[a-z0-9][a-z0-9_-]{2,63}$/)) {
@@ -2960,13 +3489,28 @@ function parseConfigCheckRequest(value: unknown): ConfigCheckPushRequestMessage 
   if (!matches(value.pd, /^[A-Za-z0-9_-]{43}$/)) {
     return null;
   }
-  if (value.alg !== undefined && (typeof value.alg !== "string" || value.alg.length < 1 || value.alg.length > 64)) {
+  if (
+    value.alg !== undefined &&
+    (typeof value.alg !== "string" ||
+      value.alg.length < 1 ||
+      value.alg.length > 64)
+  ) {
     return null;
   }
-  if (value.sg !== undefined && (typeof value.sg !== "string" || value.sg.length < 1 || value.sg.length > 512)) {
+  if (
+    value.sg !== undefined &&
+    (typeof value.sg !== "string" ||
+      value.sg.length < 1 ||
+      value.sg.length > 512)
+  ) {
     return null;
   }
-  if (value.pm !== undefined && value.pm !== "off" && value.pm !== "read-only" && value.pm !== "restricted") {
+  if (
+    value.pm !== undefined &&
+    value.pm !== "off" &&
+    value.pm !== "read-only" &&
+    value.pm !== "restricted"
+  ) {
     return null;
   }
   if (!isObject(value.cfg)) {
@@ -2975,7 +3519,9 @@ function parseConfigCheckRequest(value: unknown): ConfigCheckPushRequestMessage 
   return value as unknown as ConfigCheckPushRequestMessage;
 }
 
-function readDeclaredPolicyMode(config: Record<string, unknown>): "off" | "read-only" | "restricted" | undefined {
+function readDeclaredPolicyMode(
+  config: Record<string, unknown>,
+): "off" | "read-only" | "restricted" | undefined {
   if (!isObject(config.codenucleus)) {
     return undefined;
   }
@@ -3142,7 +3688,10 @@ function parseGitCloneRequest(value: unknown): GitCloneRequestMessage | null {
   if (typeof value.u !== "string" || value.u.length > 2048) {
     return null;
   }
-  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > 256)) {
+  if (
+    value.b !== undefined &&
+    (typeof value.b !== "string" || value.b.length > 256)
+  ) {
     return null;
   }
   return value as unknown as GitCloneRequestMessage;
@@ -3167,7 +3716,10 @@ function parseGitAddRequest(value: unknown): GitAddRequestMessage | null {
   if (typeof value.p !== "string" || value.p.length > 512) {
     return null;
   }
-  if (value.f !== undefined && (typeof value.f !== "string" || value.f.length > 512)) {
+  if (
+    value.f !== undefined &&
+    (typeof value.f !== "string" || value.f.length > 512)
+  ) {
     return null;
   }
   if (value.A !== undefined && value.A !== 0 && value.A !== 1) {
@@ -3223,10 +3775,16 @@ function parseGitPushRequest(value: unknown): GitPushRequestMessage | null {
   if (typeof value.p !== "string" || value.p.length > 512) {
     return null;
   }
-  if (value.o !== undefined && (typeof value.o !== "string" || value.o.length > 64)) {
+  if (
+    value.o !== undefined &&
+    (typeof value.o !== "string" || value.o.length > 64)
+  ) {
     return null;
   }
-  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > 256)) {
+  if (
+    value.b !== undefined &&
+    (typeof value.b !== "string" || value.b.length > 256)
+  ) {
     return null;
   }
   return value as unknown as GitPushRequestMessage;
@@ -3251,10 +3809,16 @@ function parseGitPullRequest(value: unknown): GitPullRequestMessage | null {
   if (typeof value.p !== "string" || value.p.length > 512) {
     return null;
   }
-  if (value.o !== undefined && (typeof value.o !== "string" || value.o.length > 64)) {
+  if (
+    value.o !== undefined &&
+    (typeof value.o !== "string" || value.o.length > 64)
+  ) {
     return null;
   }
-  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > 256)) {
+  if (
+    value.b !== undefined &&
+    (typeof value.b !== "string" || value.b.length > 256)
+  ) {
     return null;
   }
   return value as unknown as GitPullRequestMessage;
@@ -3279,16 +3843,24 @@ function parseGitBranchRequest(value: unknown): GitBranchRequestMessage | null {
   if (typeof value.p !== "string" || value.p.length > 512) {
     return null;
   }
-  if (value.a !== undefined && !["list", "create", "delete"].includes(value.a as string)) {
+  if (
+    value.a !== undefined &&
+    !["list", "create", "delete"].includes(value.a as string)
+  ) {
     return null;
   }
-  if (value.n !== undefined && (typeof value.n !== "string" || value.n.length > 256)) {
+  if (
+    value.n !== undefined &&
+    (typeof value.n !== "string" || value.n.length > 256)
+  ) {
     return null;
   }
   return value as unknown as GitBranchRequestMessage;
 }
 
-function parseGitCheckoutRequest(value: unknown): GitCheckoutRequestMessage | null {
+function parseGitCheckoutRequest(
+  value: unknown,
+): GitCheckoutRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
@@ -3320,7 +3892,9 @@ function parseGitConfigRequest(value: unknown): GitConfigRequestMessage | null {
   if (!isObject(value)) {
     return null;
   }
-  if (!hasOnlyKeys(value, ["v", "t", "i", "r", "p", "a", "n", "e", "g", "cm"])) {
+  if (
+    !hasOnlyKeys(value, ["v", "t", "i", "r", "p", "a", "n", "e", "g", "cm"])
+  ) {
     return null;
   }
   if (value.v !== WS_PROTOCOL_VERSION || value.t !== "gf") {
@@ -3338,10 +3912,16 @@ function parseGitConfigRequest(value: unknown): GitConfigRequestMessage | null {
   if (value.a !== "get" && value.a !== "set") {
     return null;
   }
-  if (value.n !== undefined && (typeof value.n !== "string" || value.n.length > 256)) {
+  if (
+    value.n !== undefined &&
+    (typeof value.n !== "string" || value.n.length > 256)
+  ) {
     return null;
   }
-  if (value.e !== undefined && (typeof value.e !== "string" || value.e.length > 256)) {
+  if (
+    value.e !== undefined &&
+    (typeof value.e !== "string" || value.e.length > 256)
+  ) {
     return null;
   }
   if (value.g !== undefined && value.g !== 0 && value.g !== 1) {
@@ -3369,7 +3949,12 @@ function parseErrorMessage(value: unknown): ErrorMessage | null {
   if (value.i !== undefined && !isUint32(value.i)) {
     return null;
   }
-  if (value.m !== undefined && (typeof value.m !== "string" || value.m.length === 0 || value.m.length > 256)) {
+  if (
+    value.m !== undefined &&
+    (typeof value.m !== "string" ||
+      value.m.length === 0 ||
+      value.m.length > 256)
+  ) {
     return null;
   }
   return value as unknown as ErrorMessage;
@@ -3385,7 +3970,11 @@ function sendJson(ws: WebSocket, payload: object): void {
   }
 }
 
-function telemetryFingerprint(hostname: string, platform: string, version: string): number {
+function telemetryFingerprint(
+  hostname: string,
+  platform: string,
+  version: string,
+): number {
   const input = `${hostname}|${platform}|${version}`;
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
@@ -3409,12 +3998,21 @@ function deriveAuthKeyId(secret: string): string {
   return createHash("sha256").update(secret).digest("base64url").slice(0, 24);
 }
 
-function canonicalH1ForKeyId(deviceId: string, nonce: string, timestamp: number, authKeyId: string): string {
+function canonicalH1ForKeyId(
+  deviceId: string,
+  nonce: string,
+  timestamp: number,
+  authKeyId: string,
+): string {
   return `h1|1|${deviceId}|${nonce}|${timestamp}|ak:${authKeyId}`;
 }
 
 function isJitCredentialUsable(credential: SessionJitCredential): boolean {
-  if (!credential || typeof credential.t !== "string" || credential.t.length < 16) {
+  if (
+    !credential ||
+    typeof credential.t !== "string" ||
+    credential.t.length < 16
+  ) {
     return false;
   }
   if (!isInteger(credential.e)) {
@@ -3427,13 +4025,19 @@ function isJitCredentialUsable(credential: SessionJitCredential): boolean {
   if (credential.e > now + SESSION_JIT_MAX_TTL_MS) {
     return false;
   }
-  if (credential.s !== undefined && (typeof credential.s !== "string" || credential.s.length > 128)) {
+  if (
+    credential.s !== undefined &&
+    (typeof credential.s !== "string" || credential.s.length > 128)
+  ) {
     return false;
   }
   if (credential.n !== undefined && !isJitAllowedEnvVarName(credential.n)) {
     return false;
   }
-  if (credential.r !== undefined && !matches(credential.r, /^[A-Za-z0-9._:-]{1,128}$/)) {
+  if (
+    credential.r !== undefined &&
+    !matches(credential.r, /^[A-Za-z0-9._:-]{1,128}$/)
+  ) {
     return false;
   }
   if (credential.v !== undefined && !isValidJitEnvPairs(credential.v)) {
@@ -3447,10 +4051,15 @@ function fingerprintJitCredential(credential: SessionJitCredential): string {
     ? credential.v.map(([name, value]) => `${name}=${value}`).join("|")
     : "";
   const canonical = `${credential.r ?? ""}|${credential.n ?? SESSION_JIT_DEFAULT_ENV_VAR}|${credential.e}|${credential.s ?? ""}|${pairs}|${credential.t}`;
-  return createHash("sha256").update(canonical).digest("base64url").slice(0, 24);
+  return createHash("sha256")
+    .update(canonical)
+    .digest("base64url")
+    .slice(0, 24);
 }
 
-function buildOpencodeSpawnEnv(jitCredential?: SessionJitCredential): NodeJS.ProcessEnv {
+function buildOpencodeSpawnEnv(
+  jitCredential?: SessionJitCredential,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (!jitCredential || !isJitCredentialUsable(jitCredential)) {
     return env;
@@ -3494,7 +4103,10 @@ type SessionSnapshotMetadata = {
   };
 };
 
-function captureSessionMetadata(folderPath: string, jitCredentialExpiry?: number): SessionSnapshotMetadata {
+function captureSessionMetadata(
+  folderPath: string,
+  jitCredentialExpiry?: number,
+): SessionSnapshotMetadata {
   const envSnapshot = snapshotEnvironmentVariables();
   const mcpEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(envSnapshot)) {
@@ -3515,13 +4127,19 @@ function captureSessionMetadata(folderPath: string, jitCredentialExpiry?: number
     },
     mcp: {
       env: mcpEnv,
-      ...(process.env.OPENCODE_CONFIG_PATH ? { configPath: process.env.OPENCODE_CONFIG_PATH } : {}),
-      ...(process.env.OPENCODE_MCP_TOOLS ? { activeToolConfig: process.env.OPENCODE_MCP_TOOLS } : {}),
+      ...(process.env.OPENCODE_CONFIG_PATH
+        ? { configPath: process.env.OPENCODE_CONFIG_PATH }
+        : {}),
+      ...(process.env.OPENCODE_MCP_TOOLS
+        ? { activeToolConfig: process.env.OPENCODE_MCP_TOOLS }
+        : {}),
     },
     runtime: {
       nodeVersion: process.version,
       platform: `${process.platform}/${process.arch}`,
-      ...(jitCredentialExpiry ? { jitCredentialExpiresAt: jitCredentialExpiry } : {}),
+      ...(jitCredentialExpiry
+        ? { jitCredentialExpiresAt: jitCredentialExpiry }
+        : {}),
     },
   };
 }
@@ -3532,7 +4150,11 @@ function snapshotEnvironmentVariables(): Record<string, string> {
     if (typeof rawValue !== "string" || rawValue.length === 0) {
       continue;
     }
-    if (!/^(OPENCODE_|MCP_|NODE_ENV$|SHELL$|PATH$|HOME$|USERPROFILE$|PWD$)/.test(key)) {
+    if (
+      !/^(OPENCODE_|MCP_|NODE_ENV$|SHELL$|PATH$|HOME$|USERPROFILE$|PWD$)/.test(
+        key,
+      )
+    ) {
       continue;
     }
     selected[key] = redactSensitiveText(rawValue);
@@ -3594,7 +4216,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
   const known = new Set(keys);
   for (const key of Object.keys(value)) {
     if (!known.has(key)) {
@@ -3629,45 +4254,104 @@ function isErrorCode(value: unknown): value is ErrorCode {
   );
 }
 
-async function ensureRuntimeConfig(): Promise<{ controlPlaneUrl: string; agentAuthToken: string }> {
+async function ensureRuntimeConfig(): Promise<{
+  controlPlaneUrl: string;
+  agentAuthToken: string;
+}> {
   const envPath = path.join(ALLOWED_PROJECT_ROOT_REAL, ".env");
-  const configureRequested = process.argv.includes("--configure-env") || process.argv.includes("--setup");
+  const configureRequested =
+    process.argv.includes("--configure-env") ||
+    process.argv.includes("--setup");
   const existingEnvFile = await readDotenvFile(envPath);
   const hasEnvFile = existingEnvFile !== null;
 
-  const alreadyConfigured = Boolean((process.env.CONTROL_PLANE_URL ?? "").trim()) && Boolean((process.env.AGENT_AUTH_TOKEN ?? "").trim());
+  const alreadyConfigured =
+    Boolean((process.env.CONTROL_PLANE_URL ?? "").trim()) &&
+    Boolean((process.env.AGENT_AUTH_TOKEN ?? "").trim());
   if (!configureRequested && hasEnvFile && alreadyConfigured) {
     return loadRuntimeConfig();
   }
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (!alreadyConfigured) {
-      throw new Error("missing required env. run with an interactive terminal to set up .env");
+      throw new Error(
+        "missing required env. run with an interactive terminal to set up .env",
+      );
     }
     return loadRuntimeConfig();
   }
 
   const seededValues = {
-    CONTROL_PLANE_URL: (process.env.CONTROL_PLANE_URL ?? existingEnvFile?.CONTROL_PLANE_URL ?? "ws://127.0.0.1:8787").trim(),
-    AGENT_AUTH_TOKEN: (process.env.AGENT_AUTH_TOKEN ?? existingEnvFile?.AGENT_AUTH_TOKEN ?? "").trim(),
-    OPENCODE_COMMAND: (process.env.OPENCODE_COMMAND ?? existingEnvFile?.OPENCODE_COMMAND ?? OPENCODE_COMMAND).trim(),
-    OPENCODE_HOST: (process.env.OPENCODE_HOST ?? existingEnvFile?.OPENCODE_HOST ?? OPENCODE_HOST).trim(),
-    OPENCODE_START_PORT: (process.env.OPENCODE_START_PORT ?? existingEnvFile?.OPENCODE_START_PORT ?? String(OPENCODE_START_PORT)).trim(),
-    OPENCODE_PROVIDER_ID: (process.env.OPENCODE_PROVIDER_ID ?? existingEnvFile?.OPENCODE_PROVIDER_ID ?? OPENCODE_PROVIDER_ID).trim(),
-    OPENCODE_MODEL_ID: (process.env.OPENCODE_MODEL_ID ?? existingEnvFile?.OPENCODE_MODEL_ID ?? OPENCODE_MODEL_ID).trim(),
-    REQUEST_TIMEOUT_MS: (process.env.REQUEST_TIMEOUT_MS ?? existingEnvFile?.REQUEST_TIMEOUT_MS ?? String(REQUEST_TIMEOUT_MS)).trim(),
+    CONTROL_PLANE_URL: (
+      process.env.CONTROL_PLANE_URL ??
+      existingEnvFile?.CONTROL_PLANE_URL ??
+      "ws://127.0.0.1:8787"
+    ).trim(),
+    AGENT_AUTH_TOKEN: (
+      process.env.AGENT_AUTH_TOKEN ??
+      existingEnvFile?.AGENT_AUTH_TOKEN ??
+      ""
+    ).trim(),
+    OPENCODE_COMMAND: (
+      process.env.OPENCODE_COMMAND ??
+      existingEnvFile?.OPENCODE_COMMAND ??
+      OPENCODE_COMMAND
+    ).trim(),
+    OPENCODE_HOST: (
+      process.env.OPENCODE_HOST ??
+      existingEnvFile?.OPENCODE_HOST ??
+      OPENCODE_HOST
+    ).trim(),
+    OPENCODE_START_PORT: (
+      process.env.OPENCODE_START_PORT ??
+      existingEnvFile?.OPENCODE_START_PORT ??
+      String(OPENCODE_START_PORT)
+    ).trim(),
+    OPENCODE_PROVIDER_ID: (
+      process.env.OPENCODE_PROVIDER_ID ??
+      existingEnvFile?.OPENCODE_PROVIDER_ID ??
+      OPENCODE_PROVIDER_ID
+    ).trim(),
+    OPENCODE_MODEL_ID: (
+      process.env.OPENCODE_MODEL_ID ??
+      existingEnvFile?.OPENCODE_MODEL_ID ??
+      OPENCODE_MODEL_ID
+    ).trim(),
+    REQUEST_TIMEOUT_MS: (
+      process.env.REQUEST_TIMEOUT_MS ??
+      existingEnvFile?.REQUEST_TIMEOUT_MS ??
+      String(REQUEST_TIMEOUT_MS)
+    ).trim(),
   };
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
+  });
   try {
     process.stdout.write("\n[agent-daemon] setup dialog\n");
     process.stdout.write(`Project root: ${ALLOWED_PROJECT_ROOT_REAL}\n`);
     process.stdout.write(`Config file: ${envPath}\n\n`);
 
-    const controlPlaneUrl = await promptValue(rl, "CONTROL_PLANE_URL", seededValues.CONTROL_PLANE_URL, true);
-    const agentAuthToken = await promptSecretValue(rl, "AGENT_AUTH_TOKEN", seededValues.AGENT_AUTH_TOKEN, true);
+    const controlPlaneUrl = await promptValue(
+      rl,
+      "CONTROL_PLANE_URL",
+      seededValues.CONTROL_PLANE_URL,
+      true,
+    );
+    const agentAuthToken = await promptSecretValue(
+      rl,
+      "AGENT_AUTH_TOKEN",
+      seededValues.AGENT_AUTH_TOKEN,
+      true,
+    );
 
-    const configureAdvanced = await promptYesNo(rl, "Configure advanced OpenCode options", false);
+    const configureAdvanced = await promptYesNo(
+      rl,
+      "Configure advanced OpenCode options",
+      false,
+    );
     let opencodeCommand = seededValues.OPENCODE_COMMAND;
     let opencodeHost = seededValues.OPENCODE_HOST;
     let opencodeStartPort = seededValues.OPENCODE_START_PORT;
@@ -3676,12 +4360,37 @@ async function ensureRuntimeConfig(): Promise<{ controlPlaneUrl: string; agentAu
     let requestTimeoutMs = seededValues.REQUEST_TIMEOUT_MS;
 
     if (configureAdvanced) {
-      opencodeCommand = await promptValue(rl, "OPENCODE_COMMAND", opencodeCommand, true);
+      opencodeCommand = await promptValue(
+        rl,
+        "OPENCODE_COMMAND",
+        opencodeCommand,
+        true,
+      );
       opencodeHost = await promptValue(rl, "OPENCODE_HOST", opencodeHost, true);
-      opencodeStartPort = await promptValue(rl, "OPENCODE_START_PORT", opencodeStartPort, true);
-      opencodeProviderId = await promptValue(rl, "OPENCODE_PROVIDER_ID", opencodeProviderId, true);
-      opencodeModelId = await promptValue(rl, "OPENCODE_MODEL_ID", opencodeModelId, true);
-      requestTimeoutMs = await promptValue(rl, "REQUEST_TIMEOUT_MS", requestTimeoutMs, true);
+      opencodeStartPort = await promptValue(
+        rl,
+        "OPENCODE_START_PORT",
+        opencodeStartPort,
+        true,
+      );
+      opencodeProviderId = await promptValue(
+        rl,
+        "OPENCODE_PROVIDER_ID",
+        opencodeProviderId,
+        true,
+      );
+      opencodeModelId = await promptValue(
+        rl,
+        "OPENCODE_MODEL_ID",
+        opencodeModelId,
+        true,
+      );
+      requestTimeoutMs = await promptValue(
+        rl,
+        "REQUEST_TIMEOUT_MS",
+        requestTimeoutMs,
+        true,
+      );
     }
 
     const merged: Record<string, string> = {
@@ -3699,7 +4408,9 @@ async function ensureRuntimeConfig(): Promise<{ controlPlaneUrl: string; agentAu
     await writeDotenvFile(envPath, merged);
     await ensureEnvIgnored(ALLOWED_PROJECT_ROOT_REAL);
     loadDotenv({ path: envPath, override: true });
-    process.stdout.write("\n[agent-daemon] .env saved. You can re-open this dialog with --configure-env\n\n");
+    process.stdout.write(
+      "\n[agent-daemon] .env saved. You can re-open this dialog with --configure-env\n\n",
+    );
   } finally {
     rl.close();
   }
@@ -3707,7 +4418,10 @@ async function ensureRuntimeConfig(): Promise<{ controlPlaneUrl: string; agentAu
   return loadRuntimeConfig();
 }
 
-function loadRuntimeConfig(): { controlPlaneUrl: string; agentAuthToken: string } {
+function loadRuntimeConfig(): {
+  controlPlaneUrl: string;
+  agentAuthToken: string;
+} {
   const controlPlaneUrl = process.env.CONTROL_PLANE_URL?.trim() ?? "";
   const agentAuthToken = process.env.AGENT_AUTH_TOKEN?.trim() ?? "";
   if (!controlPlaneUrl) {
@@ -3719,7 +4433,9 @@ function loadRuntimeConfig(): { controlPlaneUrl: string; agentAuthToken: string 
   return { controlPlaneUrl, agentAuthToken };
 }
 
-async function readDotenvFile(envPath: string): Promise<Record<string, string> | null> {
+async function readDotenvFile(
+  envPath: string,
+): Promise<Record<string, string> | null> {
   try {
     const raw = await readFile(envPath, "utf8");
     const parsed = parseDotenv(raw);
@@ -3733,8 +4449,13 @@ async function readDotenvFile(envPath: string): Promise<Record<string, string> |
   }
 }
 
-async function writeDotenvFile(envPath: string, values: Record<string, string>): Promise<void> {
-  const orderedKeys = Object.keys(values).sort((left, right) => left.localeCompare(right));
+async function writeDotenvFile(
+  envPath: string,
+  values: Record<string, string>,
+): Promise<void> {
+  const orderedKeys = Object.keys(values).sort((left, right) =>
+    left.localeCompare(right),
+  );
   const lines = [
     "# Auto-generated by agent-daemon setup dialog",
     "# Re-run setup with: npm run dev -- --configure-env",
@@ -3748,8 +4469,7 @@ async function writeDotenvFile(envPath: string, values: Record<string, string>):
 
   await mkdir(path.dirname(envPath), { recursive: true });
   await writeFile(envPath, lines.join("\n"), { encoding: "utf8", mode: 0o600 });
-  await chmod(envPath, 0o600).catch(() => {
-  });
+  await chmod(envPath, 0o600).catch(() => {});
 }
 
 function serializeEnvValue(value: string): string {
@@ -3768,8 +4488,7 @@ async function ensureEnvIgnored(rootPath: string): Promise<void> {
     }
     const separator = current.endsWith("\n") ? "" : "\n";
     await writeFile(gitignorePath, `${current}${separator}.env\n`, "utf8");
-  } catch {
-  }
+  } catch {}
 }
 
 async function promptValue(
@@ -3825,8 +4544,7 @@ async function promptSecretValue(
         process.stdout.write(chunk);
       };
 
-      const answer = (await maskableRl.question(""))
-        .trim();
+      const answer = (await maskableRl.question("")).trim();
 
       maskableRl.stdoutMuted = false;
       process.stdout.write("\n");
@@ -3851,7 +4569,9 @@ async function promptYesNo(
 ): Promise<boolean> {
   while (true) {
     const suffix = defaultValue ? " [Y/n]" : " [y/N]";
-    const answer = (await rl.question(`${label}${suffix}: `)).trim().toLowerCase();
+    const answer = (await rl.question(`${label}${suffix}: `))
+      .trim()
+      .toLowerCase();
     if (!answer) {
       return defaultValue;
     }
@@ -3867,14 +4587,48 @@ async function promptYesNo(
 async function readSetupStatusSnapshot(): Promise<SetupConfigStatus> {
   const existingEnv = await readDotenvFile(ENV_FILE_PATH);
   const source = {
-    CONTROL_PLANE_URL: (process.env.CONTROL_PLANE_URL ?? existingEnv?.CONTROL_PLANE_URL ?? "").trim(),
-    AGENT_AUTH_TOKEN: (process.env.AGENT_AUTH_TOKEN ?? existingEnv?.AGENT_AUTH_TOKEN ?? "").trim(),
-    OPENCODE_COMMAND: (process.env.OPENCODE_COMMAND ?? existingEnv?.OPENCODE_COMMAND ?? OPENCODE_COMMAND).trim(),
-    OPENCODE_HOST: (process.env.OPENCODE_HOST ?? existingEnv?.OPENCODE_HOST ?? OPENCODE_HOST).trim(),
-    OPENCODE_START_PORT: parseInt(process.env.OPENCODE_START_PORT ?? existingEnv?.OPENCODE_START_PORT ?? String(OPENCODE_START_PORT), 10),
-    OPENCODE_PROVIDER_ID: (process.env.OPENCODE_PROVIDER_ID ?? existingEnv?.OPENCODE_PROVIDER_ID ?? OPENCODE_PROVIDER_ID).trim(),
-    OPENCODE_MODEL_ID: (process.env.OPENCODE_MODEL_ID ?? existingEnv?.OPENCODE_MODEL_ID ?? OPENCODE_MODEL_ID).trim(),
-    REQUEST_TIMEOUT_MS: parseInt(process.env.REQUEST_TIMEOUT_MS ?? existingEnv?.REQUEST_TIMEOUT_MS ?? String(REQUEST_TIMEOUT_MS), 10),
+    CONTROL_PLANE_URL: (
+      process.env.CONTROL_PLANE_URL ??
+      existingEnv?.CONTROL_PLANE_URL ??
+      ""
+    ).trim(),
+    AGENT_AUTH_TOKEN: (
+      process.env.AGENT_AUTH_TOKEN ??
+      existingEnv?.AGENT_AUTH_TOKEN ??
+      ""
+    ).trim(),
+    OPENCODE_COMMAND: (
+      process.env.OPENCODE_COMMAND ??
+      existingEnv?.OPENCODE_COMMAND ??
+      OPENCODE_COMMAND
+    ).trim(),
+    OPENCODE_HOST: (
+      process.env.OPENCODE_HOST ??
+      existingEnv?.OPENCODE_HOST ??
+      OPENCODE_HOST
+    ).trim(),
+    OPENCODE_START_PORT: parseInt(
+      process.env.OPENCODE_START_PORT ??
+        existingEnv?.OPENCODE_START_PORT ??
+        String(OPENCODE_START_PORT),
+      10,
+    ),
+    OPENCODE_PROVIDER_ID: (
+      process.env.OPENCODE_PROVIDER_ID ??
+      existingEnv?.OPENCODE_PROVIDER_ID ??
+      OPENCODE_PROVIDER_ID
+    ).trim(),
+    OPENCODE_MODEL_ID: (
+      process.env.OPENCODE_MODEL_ID ??
+      existingEnv?.OPENCODE_MODEL_ID ??
+      OPENCODE_MODEL_ID
+    ).trim(),
+    REQUEST_TIMEOUT_MS: parseInt(
+      process.env.REQUEST_TIMEOUT_MS ??
+        existingEnv?.REQUEST_TIMEOUT_MS ??
+        String(REQUEST_TIMEOUT_MS),
+      10,
+    ),
   };
 
   const hasToken = source.AGENT_AUTH_TOKEN.length > 0;
@@ -3885,14 +4639,24 @@ async function readSetupStatusSnapshot(): Promise<SetupConfigStatus> {
     hasAgentAuthToken: hasToken,
     opencodeCommand: source.OPENCODE_COMMAND,
     opencodeHost: source.OPENCODE_HOST,
-    opencodeStartPort: Number.isInteger(source.OPENCODE_START_PORT) && source.OPENCODE_START_PORT > 0 ? source.OPENCODE_START_PORT : OPENCODE_START_PORT,
+    opencodeStartPort:
+      Number.isInteger(source.OPENCODE_START_PORT) &&
+      source.OPENCODE_START_PORT > 0
+        ? source.OPENCODE_START_PORT
+        : OPENCODE_START_PORT,
     opencodeProviderId: source.OPENCODE_PROVIDER_ID,
     opencodeModelId: source.OPENCODE_MODEL_ID,
-    requestTimeoutMs: Number.isInteger(source.REQUEST_TIMEOUT_MS) && source.REQUEST_TIMEOUT_MS > 0 ? source.REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
+    requestTimeoutMs:
+      Number.isInteger(source.REQUEST_TIMEOUT_MS) &&
+      source.REQUEST_TIMEOUT_MS > 0
+        ? source.REQUEST_TIMEOUT_MS
+        : REQUEST_TIMEOUT_MS,
   };
 }
 
-async function writeSetupConfig(request: SetupSaveRequestMessage): Promise<{ ok: boolean; message?: string }> {
+async function writeSetupConfig(
+  request: SetupSaveRequestMessage,
+): Promise<{ ok: boolean; message?: string }> {
   const controlPlaneUrl = request.u.trim();
   if (!controlPlaneUrl) {
     return { ok: false, message: "invalid_control_plane_url" };
@@ -3903,7 +4667,11 @@ async function writeSetupConfig(request: SetupSaveRequestMessage): Promise<{ ok:
 
   const existing = (await readDotenvFile(ENV_FILE_PATH)) ?? {};
   const incomingToken = request.a.trim();
-  const existingToken = (existing.AGENT_AUTH_TOKEN ?? process.env.AGENT_AUTH_TOKEN ?? "").trim();
+  const existingToken = (
+    existing.AGENT_AUTH_TOKEN ??
+    process.env.AGENT_AUTH_TOKEN ??
+    ""
+  ).trim();
   const agentAuthToken = incomingToken || existingToken;
   if (!agentAuthToken) {
     return { ok: false, message: "invalid_agent_auth_token" };
@@ -3913,12 +4681,37 @@ async function writeSetupConfig(request: SetupSaveRequestMessage): Promise<{ ok:
     ...existing,
     CONTROL_PLANE_URL: controlPlaneUrl,
     AGENT_AUTH_TOKEN: agentAuthToken,
-    OPENCODE_COMMAND: (request.oc ?? existing.OPENCODE_COMMAND ?? OPENCODE_COMMAND).trim(),
-    OPENCODE_HOST: (request.oh ?? existing.OPENCODE_HOST ?? OPENCODE_HOST).trim(),
-    OPENCODE_START_PORT: String(request.os ?? parseInt(existing.OPENCODE_START_PORT ?? String(OPENCODE_START_PORT), 10)),
-    OPENCODE_PROVIDER_ID: (request.op ?? existing.OPENCODE_PROVIDER_ID ?? OPENCODE_PROVIDER_ID).trim(),
-    OPENCODE_MODEL_ID: (request.om ?? existing.OPENCODE_MODEL_ID ?? OPENCODE_MODEL_ID).trim(),
-    REQUEST_TIMEOUT_MS: String(request.rt ?? parseInt(existing.REQUEST_TIMEOUT_MS ?? String(REQUEST_TIMEOUT_MS), 10)),
+    OPENCODE_COMMAND: (
+      request.oc ??
+      existing.OPENCODE_COMMAND ??
+      OPENCODE_COMMAND
+    ).trim(),
+    OPENCODE_HOST: (
+      request.oh ??
+      existing.OPENCODE_HOST ??
+      OPENCODE_HOST
+    ).trim(),
+    OPENCODE_START_PORT: String(
+      request.os ??
+        parseInt(
+          existing.OPENCODE_START_PORT ?? String(OPENCODE_START_PORT),
+          10,
+        ),
+    ),
+    OPENCODE_PROVIDER_ID: (
+      request.op ??
+      existing.OPENCODE_PROVIDER_ID ??
+      OPENCODE_PROVIDER_ID
+    ).trim(),
+    OPENCODE_MODEL_ID: (
+      request.om ??
+      existing.OPENCODE_MODEL_ID ??
+      OPENCODE_MODEL_ID
+    ).trim(),
+    REQUEST_TIMEOUT_MS: String(
+      request.rt ??
+        parseInt(existing.REQUEST_TIMEOUT_MS ?? String(REQUEST_TIMEOUT_MS), 10),
+    ),
   };
 
   try {
@@ -3945,11 +4738,17 @@ async function acquireDaemonLock(): Promise<boolean> {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await writeFile(DAEMON_LOCK_FILE, `${lockPayload}\n`, { encoding: "utf8", flag: "wx" });
+      await writeFile(DAEMON_LOCK_FILE, `${lockPayload}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+      });
       daemonLockHeld = true;
       return true;
     } catch (error) {
-      const code = error && typeof error === "object" && "code" in error ? String((error as { code: unknown }).code) : "";
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "";
       if (code !== "EEXIST") {
         log(`failed to acquire daemon lock: ${code || "unknown"}`);
         return false;
@@ -3961,8 +4760,7 @@ async function acquireDaemonLock(): Promise<boolean> {
         return false;
       }
 
-      await unlink(DAEMON_LOCK_FILE).catch(() => {
-      });
+      await unlink(DAEMON_LOCK_FILE).catch(() => {});
     }
   }
 
@@ -3976,8 +4774,7 @@ async function releaseDaemonLock(): Promise<void> {
   }
   const existing = await readExistingLockPid();
   if (existing === process.pid) {
-    await unlink(DAEMON_LOCK_FILE).catch(() => {
-    });
+    await unlink(DAEMON_LOCK_FILE).catch(() => {});
   }
   daemonLockHeld = false;
 }
@@ -4017,8 +4814,14 @@ function redactSensitiveText(value: string): string {
   for (const secret of secrets) {
     output = output.split(secret).join("***REDACTED***");
   }
-  output = output.replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTH|API_KEY)[A-Z0-9_]*)\s*=\s*([^\s]+)/gi, "$1=***REDACTED***");
-  output = output.replace(/"([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTH|API_KEY)[A-Z0-9_]*)"\s*:\s*"[^"]*"/gi, '"$1":"***REDACTED***"');
+  output = output.replace(
+    /\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTH|API_KEY)[A-Z0-9_]*)\s*=\s*([^\s]+)/gi,
+    "$1=***REDACTED***",
+  );
+  output = output.replace(
+    /"([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|AUTH|API_KEY)[A-Z0-9_]*)"\s*:\s*"[^"]*"/gi,
+    '"$1":"***REDACTED***"',
+  );
   return output;
 }
 
@@ -4042,10 +4845,15 @@ function collectSensitiveValues(): string[] {
 }
 
 function log(message: string): void {
-  process.stdout.write(`[agent-daemon] ${new Date().toISOString()} ${redactSensitiveText(message)}\n`);
+  process.stdout.write(
+    `[agent-daemon] ${new Date().toISOString()} ${redactSensitiveText(message)}\n`,
+  );
 }
 
-function appendContinuityLog(source: "opencode" | "git" | "session", message: string): void {
+function appendContinuityLog(
+  source: "opencode" | "git" | "session",
+  message: string,
+): void {
   if (!message || !opencodeOrchestrator) {
     return;
   }
@@ -4090,14 +4898,25 @@ class OpenCodeOrchestrator {
   ) {
     this.fallbackClient = new OpenCodeClient(OPENCODE_BASE_URL, timeoutMs);
     this.sessionRegistry = new SessionRegistry(OPENCODE_REGISTRY_FILE);
-    this.sessionLogStore = new SessionLogStore(SESSION_LOG_FILE, SESSION_LOG_MAX_BYTES);
-    this.sessionSnapshotStore = new SessionSnapshotStore(SESSION_SNAPSHOT_FILE, SESSION_SNAPSHOT_MAX_BYTES);
+    this.sessionLogStore = new SessionLogStore(
+      SESSION_LOG_FILE,
+      SESSION_LOG_MAX_BYTES,
+    );
+    this.sessionSnapshotStore = new SessionSnapshotStore(
+      SESSION_SNAPSHOT_FILE,
+      SESSION_SNAPSHOT_MAX_BYTES,
+    );
     this.bootstrapPromise = this.bootstrapFromRegistry();
   }
 
-  async initSession(sessionId: string, folderPath: string, jitCredential?: SessionJitCredential): Promise<OpenCodeSessionResult> {
+  async initSession(
+    sessionId: string,
+    folderPath: string,
+    jitCredential?: SessionJitCredential,
+  ): Promise<OpenCodeSessionResult> {
     await this.bootstrapPromise;
-    const resolvedFolderPath = await this.resolveAndValidateFolderPath(folderPath);
+    const resolvedFolderPath =
+      await this.resolveAndValidateFolderPath(folderPath);
     if (!resolvedFolderPath) {
       return { ok: false, message: "invalid_folder_path" };
     }
@@ -4106,21 +4925,40 @@ class OpenCodeOrchestrator {
       return { ok: false, message: "invalid_jit_credential" };
     }
 
-    const serverResult = await this.getOrStartServer(resolvedFolderPath, jitCredential);
+    const serverResult = await this.getOrStartServer(
+      resolvedFolderPath,
+      jitCredential,
+    );
     if (!serverResult.server) {
       return { ok: false, message: serverResult.message ?? "opencode_down" };
     }
 
-    const result = await serverResult.server.client.initSession(sessionId, resolvedFolderPath);
+    const result = await serverResult.server.client.initSession(
+      sessionId,
+      resolvedFolderPath,
+    );
     if (result.ok) {
       const effectiveSessionId = result.sessionId ?? sessionId;
       this.sessionsToFolder.set(effectiveSessionId, resolvedFolderPath);
       if (jitCredential) {
-        this.bindSessionJit(effectiveSessionId, resolvedFolderPath, serverResult.server, jitCredential);
+        this.bindSessionJit(
+          effectiveSessionId,
+          resolvedFolderPath,
+          serverResult.server,
+          jitCredential,
+        );
       }
-      const editorUrl = buildEditorUrl(serverResult.server.baseUrl, resolvedFolderPath, effectiveSessionId);
+      const editorUrl = buildEditorUrl(
+        serverResult.server.baseUrl,
+        resolvedFolderPath,
+        effectiveSessionId,
+      );
       serverResult.server.sessionUrl = editorUrl;
-      void this.recordSessionMetadata(effectiveSessionId, resolvedFolderPath, serverResult.server);
+      void this.recordSessionMetadata(
+        effectiveSessionId,
+        resolvedFolderPath,
+        serverResult.server,
+      );
       await this.persistRegistrySnapshot();
       return {
         ...result,
@@ -4128,22 +4966,44 @@ class OpenCodeOrchestrator {
       };
     }
 
-    if (result.message === "opencode_down" || result.message === "opencode_timeout") {
+    if (
+      result.message === "opencode_down" ||
+      result.message === "opencode_timeout"
+    ) {
       this.stopServer(serverResult.server, "request_failure");
-      const restarted = await this.getOrStartServer(resolvedFolderPath, jitCredential);
+      const restarted = await this.getOrStartServer(
+        resolvedFolderPath,
+        jitCredential,
+      );
       if (!restarted.server) {
         return { ok: false, message: restarted.message ?? result.message };
       }
-      const retried = await restarted.server.client.initSession(sessionId, resolvedFolderPath);
+      const retried = await restarted.server.client.initSession(
+        sessionId,
+        resolvedFolderPath,
+      );
       if (retried.ok) {
         const effectiveSessionId = retried.sessionId ?? sessionId;
         this.sessionsToFolder.set(effectiveSessionId, resolvedFolderPath);
         if (jitCredential) {
-          this.bindSessionJit(effectiveSessionId, resolvedFolderPath, restarted.server, jitCredential);
+          this.bindSessionJit(
+            effectiveSessionId,
+            resolvedFolderPath,
+            restarted.server,
+            jitCredential,
+          );
         }
-        const editorUrl = buildEditorUrl(restarted.server.baseUrl, resolvedFolderPath, effectiveSessionId);
+        const editorUrl = buildEditorUrl(
+          restarted.server.baseUrl,
+          resolvedFolderPath,
+          effectiveSessionId,
+        );
         restarted.server.sessionUrl = editorUrl;
-        void this.recordSessionMetadata(effectiveSessionId, resolvedFolderPath, restarted.server);
+        void this.recordSessionMetadata(
+          effectiveSessionId,
+          resolvedFolderPath,
+          restarted.server,
+        );
         await this.persistRegistrySnapshot();
         return {
           ...retried,
@@ -4159,7 +5019,8 @@ class OpenCodeOrchestrator {
   async getSessionStatus(folderPath: string): Promise<OpenCodeSessionStatus> {
     await this.bootstrapPromise;
 
-    const resolvedFolderPath = await this.resolveAndValidateFolderPath(folderPath);
+    const resolvedFolderPath =
+      await this.resolveAndValidateFolderPath(folderPath);
     if (!resolvedFolderPath) {
       return { ok: false, message: "invalid_folder_path" };
     }
@@ -4180,23 +5041,37 @@ class OpenCodeOrchestrator {
       ok: true,
       port: server.port,
       pid: server.pid,
-      sessionUrl: normalizeEditorUrl(server.baseUrl, resolvedFolderPath, server.sessionUrl),
+      sessionUrl: normalizeEditorUrl(
+        server.baseUrl,
+        resolvedFolderPath,
+        server.sessionUrl,
+      ),
     };
   }
 
   async terminateSession(sessionId: string): Promise<OpenCodeSessionResult> {
     await this.bootstrapPromise;
     const clients = this.candidateClientsForSession(sessionId);
-    let fallbackFailure: OpenCodeSessionResult = { ok: false, message: "opencode_down" };
+    let fallbackFailure: OpenCodeSessionResult = {
+      ok: false,
+      message: "opencode_down",
+    };
 
     for (const candidate of clients) {
-      const result = await candidate.client.terminateSession(sessionId, candidate.folderPath);
+      const result = await candidate.client.terminateSession(
+        sessionId,
+        candidate.folderPath,
+      );
       if (result.ok) {
         this.sessionsToFolder.delete(sessionId);
         await this.clearSessionJit(sessionId, "session_terminated");
         return result;
       }
-      if (result.message && result.message !== "opencode_down" && result.message !== "opencode_timeout") {
+      if (
+        result.message &&
+        result.message !== "opencode_down" &&
+        result.message !== "opencode_timeout"
+      ) {
         fallbackFailure = result;
       }
     }
@@ -4210,7 +5085,11 @@ class OpenCodeOrchestrator {
     }
     this.jitBySession.clear();
     for (const server of this.serversByFolder.values()) {
-      if (server.process && server.process.exitCode === null && !server.process.killed) {
+      if (
+        server.process &&
+        server.process.exitCode === null &&
+        !server.process.killed
+      ) {
         server.process.kill();
       }
     }
@@ -4225,7 +5104,10 @@ class OpenCodeOrchestrator {
     await this.sessionSnapshotStore.warmRecentLines(SESSION_LOG_REPLAY_LINES);
   }
 
-  appendContinuityRecord(source: "opencode" | "git" | "session", text: string): void {
+  appendContinuityRecord(
+    source: "opencode" | "git" | "session",
+    text: string,
+  ): void {
     if (!text) {
       return;
     }
@@ -4253,7 +5135,11 @@ class OpenCodeOrchestrator {
     return this.sessionsToFolder.size > 0;
   }
 
-  async revokeJitCredentials(options: { sessionId?: string; credentialRef?: string; reason: string }): Promise<number> {
+  async revokeJitCredentials(options: {
+    sessionId?: string;
+    credentialRef?: string;
+    reason: string;
+  }): Promise<number> {
     await this.bootstrapPromise;
     const targets = new Set<string>();
     if (options.sessionId) {
@@ -4282,7 +5168,10 @@ class OpenCodeOrchestrator {
       if (!termination.ok && binding) {
         const server = this.serversByFolder.get(binding.folderPath);
         if (server) {
-          this.stopServer(server, `jit_killswitch_${singleLine(options.reason)}`);
+          this.stopServer(
+            server,
+            `jit_killswitch_${singleLine(options.reason)}`,
+          );
         }
         await this.clearSessionJit(sessionId, "kill_switch_force");
       }
@@ -4304,7 +5193,12 @@ class OpenCodeOrchestrator {
     return this.sessionSnapshotStore.readLastLines(limit);
   }
 
-  private bindSessionJit(sessionId: string, folderPath: string, server: ManagedOpenCodeServer, credential: SessionJitCredential): void {
+  private bindSessionJit(
+    sessionId: string,
+    folderPath: string,
+    server: ManagedOpenCodeServer,
+    credential: SessionJitCredential,
+  ): void {
     const previous = this.jitBySession.get(sessionId);
     if (previous) {
       clearTimeout(previous.timer);
@@ -4323,7 +5217,9 @@ class OpenCodeOrchestrator {
       credentialRef,
       expiresAt: credential.e,
       envVarName: credential.n ?? SESSION_JIT_DEFAULT_ENV_VAR,
-      extraEnv: Array.isArray(credential.v) ? credential.v.map(([name]) => name) : [],
+      extraEnv: Array.isArray(credential.v)
+        ? credential.v.map(([name]) => name)
+        : [],
       timer,
     });
 
@@ -4332,16 +5228,29 @@ class OpenCodeOrchestrator {
     server.jitCredentialFingerprint = fingerprintJitCredential(credential);
   }
 
-  private async handleJitExpiry(sessionId: string, credentialRef: string): Promise<void> {
+  private async handleJitExpiry(
+    sessionId: string,
+    credentialRef: string,
+  ): Promise<void> {
     const binding = this.jitBySession.get(sessionId);
     if (!binding || binding.credentialRef !== credentialRef) {
       return;
     }
-    appendContinuityLog("session", `jit_expired session=${sessionId} ref=${credentialRef}`);
-    await this.revokeJitCredentials({ sessionId, credentialRef, reason: "jit_expired" });
+    appendContinuityLog(
+      "session",
+      `jit_expired session=${sessionId} ref=${credentialRef}`,
+    );
+    await this.revokeJitCredentials({
+      sessionId,
+      credentialRef,
+      reason: "jit_expired",
+    });
   }
 
-  private async clearSessionJit(sessionId: string, reason: string): Promise<void> {
+  private async clearSessionJit(
+    sessionId: string,
+    reason: string,
+  ): Promise<void> {
     const binding = this.jitBySession.get(sessionId);
     if (!binding) {
       return;
@@ -4349,7 +5258,10 @@ class OpenCodeOrchestrator {
 
     clearTimeout(binding.timer);
     this.jitBySession.delete(sessionId);
-    appendContinuityLog("session", `jit_cleared session=${sessionId} reason=${singleLine(reason)}`);
+    appendContinuityLog(
+      "session",
+      `jit_cleared session=${sessionId} reason=${singleLine(reason)}`,
+    );
 
     const server = this.serversByFolder.get(binding.folderPath);
     if (!server) {
@@ -4364,13 +5276,23 @@ class OpenCodeOrchestrator {
       }
     }
 
-    if (!hasRemainingJit && (server.jitCredentialFingerprint || server.jitCredentialRef)) {
+    if (
+      !hasRemainingJit &&
+      (server.jitCredentialFingerprint || server.jitCredentialRef)
+    ) {
       this.stopServer(server, `jit_cleanup_${singleLine(reason)}`);
     }
   }
 
-  private async recordSessionMetadata(sessionId: string, folderPath: string, server: ManagedOpenCodeServer): Promise<void> {
-    const metadata = captureSessionMetadata(folderPath, server.jitCredentialExpiry);
+  private async recordSessionMetadata(
+    sessionId: string,
+    folderPath: string,
+    server: ManagedOpenCodeServer,
+  ): Promise<void> {
+    const metadata = captureSessionMetadata(
+      folderPath,
+      server.jitCredentialExpiry,
+    );
     await this.sessionSnapshotStore.appendEvent({
       ts: new Date().toISOString(),
       k: "meta",
@@ -4380,7 +5302,9 @@ class OpenCodeOrchestrator {
     });
   }
 
-  private findLikelySessionIdForMessage(source: "opencode" | "git" | "session"): string | undefined {
+  private findLikelySessionIdForMessage(
+    source: "opencode" | "git" | "session",
+  ): string | undefined {
     if (this.sessionsToFolder.size === 0) {
       return undefined;
     }
@@ -4406,7 +5330,11 @@ class OpenCodeOrchestrator {
         pid: entry.pid,
         process: null,
         client: new OpenCodeClient(baseUrl, this.timeoutMs),
-        sessionUrl: normalizeEditorUrl(baseUrl, entry.folderPath, entry.sessionUrl),
+        sessionUrl: normalizeEditorUrl(
+          baseUrl,
+          entry.folderPath,
+          entry.sessionUrl,
+        ),
       };
 
       if (await this.isServerReachable(baseUrl)) {
@@ -4417,7 +5345,9 @@ class OpenCodeOrchestrator {
     await this.persistRegistrySnapshot();
   }
 
-  private async resolveAndValidateFolderPath(folderPath: string): Promise<string | null> {
+  private async resolveAndValidateFolderPath(
+    folderPath: string,
+  ): Promise<string | null> {
     const safePath = sanitizeRelativePath(folderPath);
     if (!safePath) {
       return null;
@@ -4440,19 +5370,30 @@ class OpenCodeOrchestrator {
     }
   }
 
-  private async getOrStartServer(folderPath: string, jitCredential?: SessionJitCredential): Promise<{ server?: ManagedOpenCodeServer; message?: string }> {
+  private async getOrStartServer(
+    folderPath: string,
+    jitCredential?: SessionJitCredential,
+  ): Promise<{ server?: ManagedOpenCodeServer; message?: string }> {
     const existing = this.serversByFolder.get(folderPath);
-    const requestedFingerprint = jitCredential ? fingerprintJitCredential(jitCredential) : undefined;
+    const requestedFingerprint = jitCredential
+      ? fingerprintJitCredential(jitCredential)
+      : undefined;
     if (existing) {
       if (existing.starting) {
         const isReady = await existing.starting;
         if (isReady && this.serversByFolder.get(folderPath) === existing) {
-          if (!requestedFingerprint || existing.jitCredentialFingerprint === requestedFingerprint) {
+          if (
+            !requestedFingerprint ||
+            existing.jitCredentialFingerprint === requestedFingerprint
+          ) {
             return { server: existing };
           }
         }
       } else if (await this.isServerActive(existing)) {
-        if (!requestedFingerprint || existing.jitCredentialFingerprint === requestedFingerprint) {
+        if (
+          !requestedFingerprint ||
+          existing.jitCredentialFingerprint === requestedFingerprint
+        ) {
           return { server: existing };
         }
         this.stopServer(existing, "jit_credential_rotated");
@@ -4464,13 +5405,27 @@ class OpenCodeOrchestrator {
     return this.startServer(folderPath, jitCredential);
   }
 
-  private async startServer(folderPath: string, jitCredential?: SessionJitCredential): Promise<{ server?: ManagedOpenCodeServer; message?: string }> {
-    const port = await findAvailablePort(OPENCODE_START_PORT, OPENCODE_PORT_SCAN_RANGE, OPENCODE_HOST);
+  private async startServer(
+    folderPath: string,
+    jitCredential?: SessionJitCredential,
+  ): Promise<{ server?: ManagedOpenCodeServer; message?: string }> {
+    const port = await findAvailablePort(
+      OPENCODE_START_PORT,
+      OPENCODE_PORT_SCAN_RANGE,
+      OPENCODE_HOST,
+    );
     if (!port) {
       return { message: "opencode_port_unavailable" };
     }
 
-    const args = ["serve", "--hostname", OPENCODE_HOST, "--port", String(port), "--print-logs"];
+    const args = [
+      "serve",
+      "--hostname",
+      OPENCODE_HOST,
+      "--port",
+      String(port),
+      "--print-logs",
+    ];
     let child: ChildProcess;
     try {
       child = spawn(OPENCODE_COMMAND, args, {
@@ -4495,7 +5450,8 @@ class OpenCodeOrchestrator {
       ...(jitCredential
         ? {
             jitCredentialFingerprint: fingerprintJitCredential(jitCredential),
-            jitCredentialRef: jitCredential.r ?? fingerprintJitCredential(jitCredential),
+            jitCredentialRef:
+              jitCredential.r ?? fingerprintJitCredential(jitCredential),
             jitCredentialExpiry: jitCredential.e,
           }
         : {}),
@@ -4517,7 +5473,9 @@ class OpenCodeOrchestrator {
         this.unregisterServer(folderPath);
         void this.persistRegistrySnapshot();
       }
-      log(`opencode exited port=${server.port} code=${code ?? "null"} signal=${signal ?? "null"}`);
+      log(
+        `opencode exited port=${server.port} code=${code ?? "null"} signal=${signal ?? "null"}`,
+      );
     });
 
     this.serversByFolder.set(folderPath, server);
@@ -4537,7 +5495,9 @@ class OpenCodeOrchestrator {
     return { server };
   }
 
-  private async waitUntilReachable(server: ManagedOpenCodeServer): Promise<boolean> {
+  private async waitUntilReachable(
+    server: ManagedOpenCodeServer,
+  ): Promise<boolean> {
     const deadline = Date.now() + OPENCODE_BOOT_TIMEOUT_MS;
     let delayMs = Math.max(100, OPENCODE_READY_CHECK_MS);
     while (Date.now() < deadline) {
@@ -4555,9 +5515,12 @@ class OpenCodeOrchestrator {
 
   private async isServerReachable(baseUrl: string): Promise<boolean> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, Math.min(1500, this.timeoutMs));
+    const timeout = setTimeout(
+      () => {
+        controller.abort();
+      },
+      Math.min(1500, this.timeoutMs),
+    );
     timeout.unref();
 
     try {
@@ -4573,14 +5536,19 @@ class OpenCodeOrchestrator {
     }
   }
 
-  private async isServerActive(server: ManagedOpenCodeServer): Promise<boolean> {
+  private async isServerActive(
+    server: ManagedOpenCodeServer,
+  ): Promise<boolean> {
     if (!this.isPidAlive(server.pid)) {
       return false;
     }
     return this.isServerReachable(server.baseUrl);
   }
 
-  private handleOpenCodeLog(server: ManagedOpenCodeServer, rawChunk: string): void {
+  private handleOpenCodeLog(
+    server: ManagedOpenCodeServer,
+    rawChunk: string,
+  ): void {
     const sanitizedChunk = redactSensitiveText(rawChunk);
 
     const text = sanitizedChunk.trim();
@@ -4603,7 +5571,11 @@ class OpenCodeOrchestrator {
       return;
     }
     this.unregisterServer(server.folderPath);
-    if (server.process && server.process.exitCode === null && !server.process.killed) {
+    if (
+      server.process &&
+      server.process.exitCode === null &&
+      !server.process.killed
+    ) {
       server.process.kill();
     }
     void this.persistRegistrySnapshot();
@@ -4616,7 +5588,10 @@ class OpenCodeOrchestrator {
       return;
     }
     this.serversByFolder.delete(folderPath);
-    for (const [sessionId, sessionFolderPath] of this.sessionsToFolder.entries()) {
+    for (const [
+      sessionId,
+      sessionFolderPath,
+    ] of this.sessionsToFolder.entries()) {
       if (sessionFolderPath === folderPath) {
         this.sessionsToFolder.delete(sessionId);
       }
@@ -4630,16 +5605,26 @@ class OpenCodeOrchestrator {
     }
   }
 
-  private candidateClientsForSession(sessionId: string): Array<{ baseUrl: string; client: OpenCodeClient; folderPath?: string }> {
+  private candidateClientsForSession(
+    sessionId: string,
+  ): Array<{ baseUrl: string; client: OpenCodeClient; folderPath?: string }> {
     const seenBaseUrls = new Set<string>();
-    const clients: Array<{ baseUrl: string; client: OpenCodeClient; folderPath?: string }> = [];
+    const clients: Array<{
+      baseUrl: string;
+      client: OpenCodeClient;
+      folderPath?: string;
+    }> = [];
 
     const mappedFolder = this.sessionsToFolder.get(sessionId);
     if (mappedFolder) {
       const mappedServer = this.serversByFolder.get(mappedFolder);
       if (mappedServer) {
         seenBaseUrls.add(mappedServer.baseUrl);
-        clients.push({ baseUrl: mappedServer.baseUrl, client: mappedServer.client, folderPath: mappedServer.folderPath });
+        clients.push({
+          baseUrl: mappedServer.baseUrl,
+          client: mappedServer.client,
+          folderPath: mappedServer.folderPath,
+        });
       }
     }
 
@@ -4648,7 +5633,11 @@ class OpenCodeOrchestrator {
         continue;
       }
       seenBaseUrls.add(server.baseUrl);
-      clients.push({ baseUrl: server.baseUrl, client: server.client, folderPath: server.folderPath });
+      clients.push({
+        baseUrl: server.baseUrl,
+        client: server.client,
+        folderPath: server.folderPath,
+      });
     }
 
     if (!seenBaseUrls.has(OPENCODE_BASE_URL)) {
@@ -4749,7 +5738,10 @@ class SessionRegistry {
         if (!isObject(item)) {
           continue;
         }
-        if (typeof item.folderPath !== "string" || item.folderPath.length === 0) {
+        if (
+          typeof item.folderPath !== "string" ||
+          item.folderPath.length === 0
+        ) {
           continue;
         }
         if (!isInteger(item.port) || item.port < 1 || item.port > 65535) {
@@ -4758,9 +5750,10 @@ class SessionRegistry {
         if (!isInteger(item.pid) || item.pid <= 0) {
           continue;
         }
-        const sessionUrl = typeof item.sessionUrl === "string" && item.sessionUrl.length > 0
-          ? item.sessionUrl
-          : `http://${OPENCODE_HOST}:${item.port}`;
+        const sessionUrl =
+          typeof item.sessionUrl === "string" && item.sessionUrl.length > 0
+            ? item.sessionUrl
+            : `http://${OPENCODE_HOST}:${item.port}`;
         entries.push({
           folderPath: item.folderPath,
           port: item.port,
@@ -4776,8 +5769,7 @@ class SessionRegistry {
 
   async writeAll(entries: SessionRegistryEntry[]): Promise<void> {
     this.writeQueue = this.writeQueue
-      .catch(() => {
-      })
+      .catch(() => {})
       .then(async () => {
         const normalized = entries
           .map((entry) => ({
@@ -4786,9 +5778,15 @@ class SessionRegistry {
             pid: entry.pid,
             sessionUrl: entry.sessionUrl,
           }))
-          .sort((left, right) => left.folderPath.localeCompare(right.folderPath));
+          .sort((left, right) =>
+            left.folderPath.localeCompare(right.folderPath),
+          );
         await mkdir(path.dirname(this.filePath), { recursive: true });
-        await writeFile(this.filePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+        await writeFile(
+          this.filePath,
+          `${JSON.stringify(normalized, null, 2)}\n`,
+          "utf8",
+        );
       });
 
     await this.writeQueue;
@@ -4819,8 +5817,7 @@ class SessionSnapshotStore {
   async appendEvent(entry: SessionSnapshotEntry): Promise<void> {
     const line = JSON.stringify(entry);
     this.writeQueue = this.writeQueue
-      .catch(() => {
-      })
+      .catch(() => {})
       .then(async () => {
         await mkdir(path.dirname(this.filePath), { recursive: true });
         await appendFile(this.filePath, `${line}\n`, "utf8");
@@ -4833,8 +5830,7 @@ class SessionSnapshotStore {
 
   async warmRecentLines(limit: number): Promise<void> {
     const lineLimit = clampInt(limit, 1, SESSION_LOG_REPLAY_MAX_LINES);
-    await this.writeQueue.catch(() => {
-    });
+    await this.writeQueue.catch(() => {});
     if (this.recentLines.length >= lineLimit) {
       return;
     }
@@ -4844,8 +5840,7 @@ class SessionSnapshotStore {
 
   async readLastLines(limit: number): Promise<string[]> {
     const lineLimit = clampInt(limit, 1, SESSION_LOG_REPLAY_MAX_LINES);
-    await this.writeQueue.catch(() => {
-    });
+    await this.writeQueue.catch(() => {});
     if (this.recentLines.length >= lineLimit) {
       return this.recentLines.slice(-lineLimit);
     }
@@ -4886,12 +5881,14 @@ class SessionSnapshotStore {
       if (fileStat.size <= this.maxBytes) {
         return;
       }
-      const trimmedLines = await trimFileToMaxBytes(this.filePath, this.maxBytes);
+      const trimmedLines = await trimFileToMaxBytes(
+        this.filePath,
+        this.maxBytes,
+      );
       if (trimmedLines) {
         this.recentLines = trimmedLines.slice(-this.maxRecentLines);
       }
-    } catch {
-    }
+    } catch {}
   }
 
   private async ensureHiddenFile(): Promise<void> {
@@ -4899,8 +5896,7 @@ class SessionSnapshotStore {
       return;
     }
     this.hiddenFileEnsured = true;
-    await setWindowsHiddenAttribute(this.filePath).catch(() => {
-    });
+    await setWindowsHiddenAttribute(this.filePath).catch(() => {});
   }
 }
 
@@ -4914,7 +5910,10 @@ class SessionLogStore {
     private readonly maxBytes: number,
   ) {}
 
-  async appendLine(source: "opencode" | "git" | "session", rawChunk: string): Promise<void> {
+  async appendLine(
+    source: "opencode" | "git" | "session",
+    rawChunk: string,
+  ): Promise<void> {
     if (!rawChunk.trim()) {
       return;
     }
@@ -4924,14 +5923,15 @@ class SessionLogStore {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
-      .map((line) => `[${baseTimestamp}] ${source}: ${truncateText(line, 2000)}`);
+      .map(
+        (line) => `[${baseTimestamp}] ${source}: ${truncateText(line, 2000)}`,
+      );
     if (lines.length === 0) {
       return;
     }
 
     this.writeQueue = this.writeQueue
-      .catch(() => {
-      })
+      .catch(() => {})
       .then(async () => {
         await mkdir(path.dirname(this.filePath), { recursive: true });
         await appendFile(this.filePath, `${lines.join("\n")}\n`, "utf8");
@@ -4943,8 +5943,7 @@ class SessionLogStore {
 
   async warmRecentLines(limit: number): Promise<void> {
     const lineLimit = clampInt(limit, 1, SESSION_LOG_REPLAY_MAX_LINES);
-    await this.writeQueue.catch(() => {
-    });
+    await this.writeQueue.catch(() => {});
     if (this.recentLines.length >= lineLimit) {
       return;
     }
@@ -4954,8 +5953,7 @@ class SessionLogStore {
 
   async readLastLines(limit: number): Promise<string[]> {
     const lineLimit = clampInt(limit, 1, SESSION_LOG_REPLAY_MAX_LINES);
-    await this.writeQueue.catch(() => {
-    });
+    await this.writeQueue.catch(() => {});
     if (this.recentLines.length >= lineLimit) {
       return this.recentLines.slice(-lineLimit);
     }
@@ -4996,16 +5994,21 @@ class SessionLogStore {
       if (fileStat.size <= this.maxBytes) {
         return;
       }
-      const trimmedLines = await trimFileToMaxBytes(this.filePath, this.maxBytes);
+      const trimmedLines = await trimFileToMaxBytes(
+        this.filePath,
+        this.maxBytes,
+      );
       if (trimmedLines) {
         this.recentLines = trimmedLines.slice(-this.maxRecentLines);
       }
-    } catch {
-    }
+    } catch {}
   }
 }
 
-async function trimFileToMaxBytes(filePath: string, maxBytes: number): Promise<string[] | null> {
+async function trimFileToMaxBytes(
+  filePath: string,
+  maxBytes: number,
+): Promise<string[] | null> {
   const rawBuffer = await readFile(filePath);
   if (rawBuffer.byteLength <= maxBytes) {
     return null;
@@ -5046,7 +6049,11 @@ async function setWindowsHiddenAttribute(filePath: string): Promise<void> {
   });
 }
 
-async function findAvailablePort(startPort: number, scanRange: number, host: string): Promise<number | null> {
+async function findAvailablePort(
+  startPort: number,
+  scanRange: number,
+  host: string,
+): Promise<number | null> {
   const firstPort = Math.max(1024, startPort);
   for (let offset = 0; offset < scanRange; offset += 1) {
     const candidate = firstPort + offset;
@@ -5099,7 +6106,11 @@ async function detectListeningPorts(): Promise<number[]> {
   }
 
   try {
-    const output = await captureCommandOutput(command.command, command.args, 5000);
+    const output = await captureCommandOutput(
+      command.command,
+      command.args,
+      5000,
+    );
     return parseListeningPortsFromOutput(output)
       .filter((port) => port >= 1024 && port <= 65535)
       .filter((port) => port !== OPENCODE_START_PORT)
@@ -5122,7 +6133,11 @@ function resolvePortScanCommand(): { command: string; args: string[] } | null {
   return null;
 }
 
-async function captureCommandOutput(command: string, args: string[], timeoutMs: number): Promise<string> {
+async function captureCommandOutput(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
@@ -5190,7 +6205,11 @@ function extractSessionUrlFromLog(logLine: string): string | null {
   return match ? match[0] : null;
 }
 
-function buildEditorUrl(baseUrl: string, directoryPath: string, sessionId?: string): string {
+function buildEditorUrl(
+  baseUrl: string,
+  directoryPath: string,
+  sessionId?: string,
+): string {
   try {
     const url = new URL(baseUrl);
     const slug = encodeDirectorySlug(directoryPath);
@@ -5207,7 +6226,11 @@ function buildEditorUrl(baseUrl: string, directoryPath: string, sessionId?: stri
   }
 }
 
-function normalizeEditorUrl(baseUrl: string, directoryPath: string, sessionUrl?: string): string {
+function normalizeEditorUrl(
+  baseUrl: string,
+  directoryPath: string,
+  sessionUrl?: string,
+): string {
   const fallbackUrl = buildEditorUrl(baseUrl, directoryPath);
   if (!sessionUrl) {
     return fallbackUrl;
@@ -5250,19 +6273,29 @@ class OpenCodeClient {
     private readonly timeoutMs: number,
   ) {}
 
-  async initSession(sessionId: string, directoryPath?: string): Promise<OpenCodeSessionResult> {
+  async initSession(
+    sessionId: string,
+    directoryPath?: string,
+  ): Promise<OpenCodeSessionResult> {
     const initPayload = {
       modelID: OPENCODE_MODEL_ID,
       providerID: OPENCODE_PROVIDER_ID,
       messageID: `msg_${randomToken(12)}`,
     };
 
-    const initResult = await this.postToCandidates(`/session/${encodeURIComponent(sessionId)}/init`, initPayload, directoryPath);
+    const initResult = await this.postToCandidates(
+      `/session/${encodeURIComponent(sessionId)}/init`,
+      initPayload,
+      directoryPath,
+    );
     if (initResult.ok) {
       return { ok: true, sessionId };
     }
 
-    if (initResult.message === "opencode_down" || initResult.message === "opencode_timeout") {
+    if (
+      initResult.message === "opencode_down" ||
+      initResult.message === "opencode_timeout"
+    ) {
       return initResult;
     }
 
@@ -5278,27 +6311,51 @@ class OpenCodeClient {
     return { ok: true, sessionId: createdSessionId };
   }
 
-  terminateSession(sessionId: string, directoryPath?: string): Promise<OpenCodeSessionResult> {
-    return this.postToCandidates(`/session/${encodeURIComponent(sessionId)}/abort`, undefined, directoryPath);
+  terminateSession(
+    sessionId: string,
+    directoryPath?: string,
+  ): Promise<OpenCodeSessionResult> {
+    return this.postToCandidates(
+      `/session/${encodeURIComponent(sessionId)}/abort`,
+      undefined,
+      directoryPath,
+    );
   }
 
-  private async createSession(directoryPath?: string): Promise<OpenCodeSessionResult> {
-    const withConfiguredModel = await this.postToCandidates("/session", {
-      modelID: OPENCODE_MODEL_ID,
-      providerID: OPENCODE_PROVIDER_ID,
-    }, directoryPath);
-    if (withConfiguredModel.ok || withConfiguredModel.message === "opencode_down" || withConfiguredModel.message === "opencode_timeout") {
+  private async createSession(
+    directoryPath?: string,
+  ): Promise<OpenCodeSessionResult> {
+    const withConfiguredModel = await this.postToCandidates(
+      "/session",
+      {
+        modelID: OPENCODE_MODEL_ID,
+        providerID: OPENCODE_PROVIDER_ID,
+      },
+      directoryPath,
+    );
+    if (
+      withConfiguredModel.ok ||
+      withConfiguredModel.message === "opencode_down" ||
+      withConfiguredModel.message === "opencode_timeout"
+    ) {
       return withConfiguredModel;
     }
 
     return this.postToCandidates("/session", {}, directoryPath);
   }
 
-  private async postToCandidates(endpointPath: string, body?: object, directoryPath?: string): Promise<OpenCodeSessionResult> {
+  private async postToCandidates(
+    endpointPath: string,
+    body?: object,
+    directoryPath?: string,
+  ): Promise<OpenCodeSessionResult> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
 
     for (let index = 0; index < candidateBaseUrls.length; index += 1) {
-      const endpoint = appendDirectoryQuery(`${candidateBaseUrls[index]!}${endpointPath}`, directoryPath);
+      const endpoint = appendDirectoryQuery(
+        `${candidateBaseUrls[index]!}${endpointPath}`,
+        directoryPath,
+      );
       const controller = new AbortController();
       const timeout = setTimeout(() => {
         controller.abort();
@@ -5320,9 +6377,14 @@ class OpenCodeClient {
         if (response.ok) {
           return { ok: true, payload };
         }
-        return { ok: false, message: toOpenCodeFailureMessage(response.status, payload), payload };
+        return {
+          ok: false,
+          message: toOpenCodeFailureMessage(response.status, payload),
+          payload,
+        };
       } catch (error) {
-        const isAbort = error instanceof DOMException && error.name === "AbortError";
+        const isAbort =
+          error instanceof DOMException && error.name === "AbortError";
         if (isAbort) {
           return { ok: false, message: "opencode_timeout" };
         }
@@ -5352,8 +6414,7 @@ class OpenCodeClient {
         fallback.hostname = "localhost";
         return [primary, fallback.toString().replace(/\/$/, "")];
       }
-    } catch {
-    }
+    } catch {}
     return [primary];
   }
 }
@@ -5377,7 +6438,10 @@ function readSessionIdFromPayload(payload: unknown): string | null {
   return /^ses[A-Za-z0-9_-]{1,64}$/.test(sessionId) ? sessionId : null;
 }
 
-function toOpenCodeFailureMessage(statusCode: number, payload: unknown): string {
+function toOpenCodeFailureMessage(
+  statusCode: number,
+  payload: unknown,
+): string {
   const fallback = `http_${statusCode}`;
   if (!isObject(payload)) {
     return fallback;
@@ -5394,7 +6458,11 @@ function toOpenCodeFailureMessage(statusCode: number, payload: unknown): string 
       const code = typeof first.code === "string" ? first.code : "";
       const pathValue = first.path;
       const pathSegment =
-        Array.isArray(pathValue) && pathValue.length > 0 && typeof pathValue[0] === "string" ? pathValue[0] : "";
+        Array.isArray(pathValue) &&
+        pathValue.length > 0 &&
+        typeof pathValue[0] === "string"
+          ? pathValue[0]
+          : "";
       const detail = [code, pathSegment].filter(Boolean).join(":");
       if (detail) {
         return fitSessionFailureReason(`${fallback}:${detail}`);
@@ -5425,37 +6493,41 @@ process.once("exit", () => {
 
 // CLI argument handling
 const args = process.argv.slice(2);
-const isSetupMode = args.includes("--setup") || args.includes("--configure-env");
-const isHeadlessMode = process.env.RUNTIME_MODE === "headless" || !process.env.RUNTIME_MODE;
+const isSetupMode =
+  args.includes("--setup") || args.includes("--configure-env");
+const isHeadlessMode =
+  process.env.RUNTIME_MODE === "headless" || !process.env.RUNTIME_MODE;
 const isUiBoxMode = process.env.RUNTIME_MODE === "ui-box";
 
 async function handleCliSetup(): Promise<void> {
   const provisioner = new Provisioner();
-  
+
   // Probe dependencies first
   console.log("\n📦 Checking dependencies...");
   const deps = await provisioner.probeDependencies();
-  
-  const missingDeps = deps.filter(d => !d.installed);
+
+  const missingDeps = deps.filter((d) => !d.installed);
   if (missingDeps.length > 0) {
     console.log("\n⚠️  Missing dependencies:");
     for (const dep of missingDeps) {
       console.log(`   - ${dep.type}: ${dep.error || "Not installed"}`);
     }
     console.log("\nPlease install the missing dependencies and try again.");
-    console.log("Visit https://codemantle.cloud/docs/setup for installation instructions.");
+    console.log(
+      "Visit https://codemantle.cloud/docs/setup for installation instructions.",
+    );
     process.exit(1);
   }
-  
+
   console.log("✅ All dependencies found:");
   for (const dep of deps) {
     console.log(`   - ${dep.type}: ${dep.version || "installed"}`);
   }
-  
+
   // Run interactive setup
   console.log("\n🚀 Starting CodeMantle setup...\n");
   const config = await provisioner.runInteractiveSetup("headless");
-  
+
   console.log("\n✨ Setup complete!");
   console.log(`\nWorkspace: ${config.workspacePath}`);
   console.log(`Control Plane: ${config.controlPlaneUrl}`);
@@ -5475,14 +6547,19 @@ async function startDaemon(): Promise<void> {
     return;
   }
 
-  opencodeOrchestrator = new OpenCodeOrchestrator(ALLOWED_PROJECT_ROOT_REAL, REQUEST_TIMEOUT_MS);
-  log(`starting daemon root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL}`);
-  
+  opencodeOrchestrator = new OpenCodeOrchestrator(
+    ALLOWED_PROJECT_ROOT_REAL,
+    REQUEST_TIMEOUT_MS,
+  );
+  log(
+    `starting daemon root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL}`,
+  );
+
   // In UI-box mode, emit a ready event
   if (isUiBoxMode) {
     log("ui-box mode: emitting ready event");
   }
-  
+
   connect();
 }
 
