@@ -49,6 +49,18 @@ jobs:
           name: codemantle-cli-release-artifact
           path: ${{ steps.npm_pack.outputs.filename }}
 
+      # PUBLISH TO NPM FIRST (most important)
+      - name: Publish npm package with provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: packages/codemantle
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Registry: $(npm config get registry)"
+          VERSION=$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')
+          echo "Publishing codemantle@$VERSION"
+          npm publish --access public --provenance
+
+      # GitHub release is secondary - if it fails, npm publish already succeeded
       - name: Create GitHub release on tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -56,19 +68,3 @@ jobs:
           files: ${{ steps.npm_pack.outputs.filename }}
           fail_on_unmatched_files: false
         continue-on-error: true
-
-      - name: Verify npm configuration
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          echo "Registry: $(npm config get registry)"
-          echo "Tag: ${{ github.ref }}"
-          cat packages/codemantle/package.json | grep version
-
-      - name: Publish npm package with provenance
-        if: startsWith(github.ref, 'refs/tags/')
-        working-directory: packages/codemantle
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Registry: $(npm config get registry)"
-          echo "Publishing codemantle@$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')"
-          npm publish --access public --provenance
