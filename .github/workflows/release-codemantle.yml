@@ -66,9 +66,9 @@ jobs:
 
       - name: Publish npm package with provenance
         if: startsWith(github.ref, 'refs/tags/')
+        working-directory: packages/codemantle
         run: |
-          echo "Publishing to npm with tag: ${{ github.ref }}"
-          npm publish --workspace packages/codemantle --access public --provenance || {
-            echo "Publish failed with exit code $?"
-            exit 1
-          }
+          echo "Current directory: $(pwd)"
+          echo "Registry: $(npm config get registry)"
+          echo "Publishing codemantle@$(cat package.json | grep version | head -1 | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')"
+          npm publish --access public --provenance
