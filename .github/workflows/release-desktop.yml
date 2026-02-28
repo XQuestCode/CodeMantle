@@ -44,23 +44,37 @@ jobs:
         working-directory: packages/agent-daemon
 
       - name: Optional Windows signing hook
-        if: runner.os == 'Windows' && secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD != ''
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            Write-Host "Windows signing secrets not configured, skipping..."
+            exit 0
+          }
           $certificatePath = Join-Path $env:RUNNER_TEMP "codemantle-signing-cert.pfx"
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE }}"))
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String("$env:WINDOWS_CERTIFICATE"))
           "WINDOWS_CERTIFICATE_PATH=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Append
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
       - name: Optional macOS signing hook
-        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != ''
+        if: runner.os == 'macOS'
         run: |
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            echo "macOS signing secrets not configured, skipping..."
+            exit 0
+          fi
           KEYCHAIN_PATH="$RUNNER_TEMP/codemantle-signing.keychain-db"
           CERT_PATH="$RUNNER_TEMP/codemantle-signing-cert.p12"
-          echo "${{ secrets.APPLE_CERTIFICATE }}" | base64 --decode > "$CERT_PATH"
-          security create-keychain -p "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" "$KEYCHAIN_PATH"
-          security unlock-keychain -p "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security list-keychains -d user -s "$KEYCHAIN_PATH"
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Build and release desktop bundles
         uses: tauri-apps/tauri-action@v0
