@@ -14,8 +14,10 @@ jobs:
         include:
           - platform: macos-latest
             bundles: dmg
+            os_name: macos
           - platform: windows-latest
             bundles: nsis
+            os_name: windows
     runs-on: ${{ matrix.platform }}
     permissions:
       contents: write
@@ -62,6 +64,7 @@ jobs:
 
       - name: Build and release desktop bundles
         uses: tauri-apps/tauri-action@v0
+        id: tauri_build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -82,3 +85,24 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --bundles ${{ matrix.bundles }}
+
+      - name: Upload Windows .exe artifacts
+        if: matrix.os_name == 'windows' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codemantle-desktop-windows-${{ github.ref_name }}
+          path: |
+            apps/desktop-app/src-tauri/target/release/bundle/nsis/*.exe
+            apps/desktop-app/src-tauri/target/release/bundle/msi/*.msi
+            packages/agent-daemon/bin/codemantle-agent.exe
+          if-no-files-found: warn
+
+      - name: Upload macOS .dmg artifacts
+        if: matrix.os_name == 'macos' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codemantle-desktop-macos-${{ github.ref_name }}
+          path: |
+            apps/desktop-app/src-tauri/target/release/bundle/dmg/*.dmg
+            packages/agent-daemon/bin/codemantle-agent-macos
+          if-no-files-found: warn
