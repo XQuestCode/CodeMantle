@@ -72,13 +72,18 @@ export function useAutoUpdater(): UpdaterState {
       }
     }
 
-    void checkForUpdates()
+    // Delay the first check to let the window render first
+    const initialDelay = setTimeout(() => {
+      void checkForUpdates()
+    }, 5000)
+
     const timer = setInterval(() => {
       void checkForUpdates()
     }, UPDATE_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true
+      clearTimeout(initialDelay)
       clearInterval(timer)
     }
   }, [])

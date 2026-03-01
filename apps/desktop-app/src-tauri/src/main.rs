@@ -279,8 +279,7 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std
     
     let menu = Menu::with_items(app, &[&show_item, &hide_item, &separator, &quit_item])?;
     
-    let tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+    let mut builder = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("CodeMantle Agent")
         .on_tray_icon_event(|tray, event| {
@@ -310,8 +309,14 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std
                 }
                 _ => {}
             }
-        })
-        .build(app)?;
+        });
+
+    // Only set icon if one is available — avoids panic on missing icon
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+
+    let tray = builder.build(app)?;
     
     Ok(tray)
 }
@@ -332,8 +337,11 @@ fn main() {
             sidecar_binary: get_sidecar_binary_name().to_string(),
         })
         .setup(|app| {
-            // Setup system tray
-            let _tray = setup_tray(app.handle())?;
+            // Setup system tray (non-fatal — app still works without it)
+            match setup_tray(app.handle()) {
+                Ok(_tray) => {},
+                Err(e) => eprintln!("Warning: Failed to setup system tray: {}", e),
+            }
             
             // Check if this is a first run
             let app_handle = app.handle().clone();

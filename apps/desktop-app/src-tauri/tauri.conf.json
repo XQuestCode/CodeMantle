@@ -9,6 +9,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -24,11 +25,9 @@
       "enabled": true
     },
     "updater": {
-      "active": true,
-      "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0NkMzMUZDRTg1MTk1MEMKUldRTWxWSG8vREZzZEZ5cE9ZVGliMHRBQSt6WHMwRk1LMHZQQ2FNYk5CS3NsZEswRU5mOEFxR3IK",
       "endpoints": [
-        "https://updates.example.com/codemantle/latest.json"
+        "https://github.com/XQuestCode/CodeMantle/releases/latest/download/latest.json"
       ]
     }
   },
@@ -53,11 +52,6 @@
           ]
         }
       ]
-    },
-    "trayIcon": {
-      "id": "main-tray",
-      "iconPath": "icons/icon.png",
-      "tooltip": "CodeMantle Agent"
     },
     "windows": [
       {
