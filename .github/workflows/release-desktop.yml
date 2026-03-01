@@ -31,18 +31,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install frontend dependencies
+      - name: Install all workspace dependencies
         run: npm ci
-        working-directory: apps/desktop-app
-
-      - name: Install Tauri CLI
-        run: npm install @tauri-apps/cli@^2.0.0
-        working-directory: apps/desktop-app
 
       - name: Build agent daemon sidecar
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
         working-directory: packages/agent-daemon
 
       - name: Package Windows sidecar binary
