@@ -10,6 +10,7 @@ coverage/
 # Tauri / Rust
 target/
 **/*.rs.bk
+.tauri/
 
 # Env and local state
 .env

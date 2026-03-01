@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -48,24 +49,17 @@ jobs:
           name: codemantle-cli-release-artifact
           path: ${{ steps.npm_pack.outputs.filename }}
 
-      - name: Configure npm auth for publish
-        if: startsWith(github.ref, 'refs/tags/')
-        working-directory: packages/codemantle
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish npm package
         if: startsWith(github.ref, 'refs/tags/')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: packages/codemantle
-        run: npm publish --access public --registry https://registry.npmjs.org
+        run: npm publish --access public --provenance --registry https://registry.npmjs.org
 
       - name: Create or update GitHub release on tag
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.npm_pack.outputs.filename }}
-          allowUpdates: true
+          overwrite_files: true
         continue-on-error: true

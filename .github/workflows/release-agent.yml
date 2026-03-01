@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     defaults:
       run:
         working-directory: packages/agent-daemon
@@ -65,17 +66,11 @@ jobs:
             packages/agent-daemon/bin/checksums.txt
             packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
 
-      - name: Configure npm auth for publish
-        if: startsWith(github.ref, 'refs/tags/')
-        run: echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish npm package
         if: startsWith(github.ref, 'refs/tags/')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --registry https://registry.npmjs.org
+        run: npm publish --access public --provenance --registry https://registry.npmjs.org
 
       - name: Create or update GitHub release on tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -85,5 +80,5 @@ jobs:
             packages/agent-daemon/bin/codemantle-agent-*
             packages/agent-daemon/bin/checksums.txt
             packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
-          allowUpdates: true
+          overwrite_files: true
         continue-on-error: true
