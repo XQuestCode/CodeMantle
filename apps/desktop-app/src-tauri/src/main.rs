@@ -20,7 +20,6 @@ struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
     is_connected: Arc<AtomicBool>,
     first_connection_registered: Arc<AtomicBool>,
-    sidecar_binary: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -50,7 +49,7 @@ async fn select_folder(app: AppHandle) -> Result<Option<String>, String> {
 #[tauri::command]
 async fn save_setup_config(
     app: AppHandle,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     config: SetupConfig,
 ) -> Result<(), String> {
     // Save config to app data directory
@@ -329,12 +328,10 @@ fn main() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             agent_process: Arc::new(Mutex::new(None)),
             is_connected: Arc::new(AtomicBool::new(false)),
             first_connection_registered: Arc::new(AtomicBool::new(false)),
-            sidecar_binary: get_sidecar_binary_name().to_string(),
         })
         .setup(|app| {
             // Setup system tray (non-fatal — app still works without it)
