@@ -3,6 +3,20 @@
   <h1>CodeMantle</h1>
   <p><strong>Open-source remote orchestration platform for OpenCode runtimes</strong></p>
   <p>Secure reverse tunnel model · Compact protocol contracts · Policy-aware session control</p>
+
+  [![CI](https://github.com/XQuestCode/CodeMantle/actions/workflows/ci.yml/badge.svg)](https://github.com/XQuestCode/CodeMantle/actions/workflows/ci.yml)
+  [![Release Agent](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-agent.yml/badge.svg)](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-agent.yml)
+  [![Release Control Plane](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-control-plane.yml/badge.svg)](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-control-plane.yml)
+  [![Release Desktop](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-desktop.yml)
+
+  [![npm @codemantle/panel](https://img.shields.io/npm/v/@codemantle/panel?label=%40codemantle%2Fpanel&color=cb3837&logo=npm)](https://www.npmjs.com/package/@codemantle/panel)
+  [![npm @codemantle/agent-daemon](https://img.shields.io/npm/v/@codemantle/agent-daemon?label=%40codemantle%2Fagent-daemon&color=cb3837&logo=npm)](https://www.npmjs.com/package/@codemantle/agent-daemon)
+  [![npm codemantle](https://img.shields.io/npm/v/codemantle?label=codemantle&color=cb3837&logo=npm)](https://www.npmjs.com/package/codemantle)
+
+  [![License](https://img.shields.io/github/license/XQuestCode/CodeMantle?color=blue)](LICENSE)
+  [![GitHub release](https://img.shields.io/github/v/release/XQuestCode/CodeMantle?include_prereleases&sort=semver)](https://github.com/XQuestCode/CodeMantle/releases)
+  [![GitHub stars](https://img.shields.io/github/stars/XQuestCode/CodeMantle?style=flat)](https://github.com/XQuestCode/CodeMantle/stargazers)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 </div>
 
 ---

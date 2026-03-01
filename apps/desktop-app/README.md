@@ -1,5 +1,9 @@
 # codemantle-desktop
 
+[![Release Desktop](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-desktop.yml/badge.svg)](https://github.com/XQuestCode/CodeMantle/actions/workflows/release-desktop.yml)
+[![License](https://img.shields.io/github/license/XQuestCode/CodeMantle)](../../LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/XQuestCode/CodeMantle?include_prereleases&sort=semver&label=desktop%20release)](https://github.com/XQuestCode/CodeMantle/releases)
+
 Tauri desktop application for CodeMantle setup and local sidecar lifecycle.
 
 ## Scope

@@ -1,5 +1,9 @@
 # @codemantle/agent-daemon
 
+[![npm version](https://img.shields.io/npm/v/@codemantle/agent-daemon?color=cb3837&logo=npm)](https://www.npmjs.com/package/@codemantle/agent-daemon)
+[![npm downloads](https://img.shields.io/npm/dm/@codemantle/agent-daemon?color=blue)](https://www.npmjs.com/package/@codemantle/agent-daemon)
+[![License](https://img.shields.io/github/license/XQuestCode/CodeMantle)](../../LICENSE)
+
 CodeMantle host daemon package.
 
 This daemon connects outbound to the control plane, executes session operations locally, and enforces filesystem/process safety boundaries on the host.

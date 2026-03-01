@@ -1,5 +1,9 @@
 # @codemantle/panel
 
+[![npm version](https://img.shields.io/npm/v/@codemantle/panel?color=cb3837&logo=npm)](https://www.npmjs.com/package/@codemantle/panel)
+[![npm downloads](https://img.shields.io/npm/dm/@codemantle/panel?color=blue)](https://www.npmjs.com/package/@codemantle/panel)
+[![License](https://img.shields.io/github/license/XQuestCode/CodeMantle)](../../LICENSE)
+
 CodeMantle control-plane service as an npm package.
 
 It runs the WebSocket control channel, HTTP API, and UI used to orchestrate connected `@codemantle/agent-daemon` instances.

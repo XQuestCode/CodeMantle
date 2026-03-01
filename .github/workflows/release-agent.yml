@@ -40,18 +40,7 @@ jobs:
       - name: Build source package
         run: npm run build
 
-      - name: Build platform binaries
-        run: |
-          npx pkg . --target node18-win-x64 --output bin/codemantle-agent-windows-x64.exe
-          npx pkg . --target node18-macos-x64 --output bin/codemantle-agent-darwin-x64
-          npx pkg . --target node18-macos-arm64 --output bin/codemantle-agent-darwin-arm64
-          npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux-x64
-          npx pkg . --target node18-linux-arm64 --output bin/codemantle-agent-linux-arm64
-
-      - name: Generate checksums manifest
-        run: node -e 'const fs=require("fs"); const crypto=require("crypto"); const dir="bin"; const files=fs.readdirSync(dir).filter((name)=>name.startsWith("codemantle-agent-")); const lines=files.map((file)=>{const h=crypto.createHash("sha256").update(fs.readFileSync(`${dir}/${file}`)).digest("hex"); return `${h}  ${file}`;}); fs.writeFileSync(`${dir}/checksums.txt`, `${lines.join("\n")}\n`);'
-
-      - name: Pack npm wrapper
+      - name: Pack npm package
         run: npm pack --json > npm-pack-output.json
 
       - name: Extract npm artifact name
@@ -60,25 +49,11 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: codemantle-agent-release-artifacts
-          path: |
-            packages/agent-daemon/bin/codemantle-agent-*
-            packages/agent-daemon/bin/checksums.txt
-            packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
+          name: codemantle-agent-npm-package
+          path: packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
 
       - name: Publish npm package
         if: startsWith(github.ref, 'refs/tags/')
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance --registry https://registry.npmjs.org
-
-      - name: Create or update GitHub release on tag
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            packages/agent-daemon/bin/codemantle-agent-*
-            packages/agent-daemon/bin/checksums.txt
-            packages/agent-daemon/${{ steps.npm_pack.outputs.filename }}
-          overwrite_files: true
-        continue-on-error: true

@@ -1,6 +1,6 @@
 {
   "name": "@codemantle/agent-daemon",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "CodeMantle host daemon for secure reverse control-plane orchestration.",
   "private": false,
   "license": "Apache-2.0",
@@ -22,6 +22,7 @@
     "opencode"
   ],
   "type": "module",
+  "main": "dist/index.js",
   "files": [
     "bin/codemantle-agent.js",
     "scripts/lib/downloader.mjs",
@@ -57,11 +58,13 @@
     "typescript": "^5.8.2"
   },
   "pkg": {
+    "entry": "dist/index.js",
     "scripts": [
       "dist/**/*.js"
     ],
     "assets": [
-      "package.json"
+      "package.json",
+      ".env"
     ],
     "targets": [
       "node18-win-x64",

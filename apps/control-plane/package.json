@@ -1,6 +1,6 @@
 {
   "name": "@codemantle/panel",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "CodeMantle control plane API and reverse tunnel orchestrator.",
   "private": false,
   "license": "Apache-2.0",

@@ -39,27 +39,22 @@ jobs:
         run: npm install @tauri-apps/cli@^2.0.0
         working-directory: apps/desktop-app
 
-      - name: Build sidecar binaries for desktop bundle
+      - name: Build agent daemon sidecar
         run: |
           npm ci
           npm run build
         working-directory: packages/agent-daemon
 
-      - name: Package Windows binary
+      - name: Package Windows sidecar binary
         if: runner.os == 'Windows'
         run: npx pkg . --target node18-win-x64 --output bin/codemantle-agent.exe
         working-directory: packages/agent-daemon
 
-      - name: Package macOS binary
+      - name: Package macOS sidecar binary
         if: runner.os == 'macOS'
         run: |
           npx pkg . --target node18-x64 --output bin/codemantle-agent-macos
           npx pkg . --target node18-arm64 --output bin/codemantle-agent-darwin-arm64
-        working-directory: packages/agent-daemon
-
-      - name: Package Linux binary
-        if: runner.os == 'Linux'
-        run: npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux
         working-directory: packages/agent-daemon
 
       - name: Optional Windows signing hook
@@ -95,7 +90,7 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
-      - name: Build and release desktop bundles
+      - name: Build and release desktop installer
         uses: tauri-apps/tauri-action@v0
         id: tauri_build
         env:
@@ -114,29 +109,38 @@ jobs:
           tauriScript: npx tauri
           projectPath: apps/desktop-app
           tagName: ${{ github.ref_name }}
-          releaseName: "CodeMantle Desktop ${{ github.ref_name }}"
-          releaseBody: "Automated desktop release artifact"
+          releaseName: "CodeMantle ${{ github.ref_name }}"
+          releaseBody: |
+            ## CodeMantle ${{ github.ref_name }}
+
+            ### Downloads
+            - **Windows**: Download the `.exe` installer below
+            - **macOS**: Download the `.dmg` installer below
+
+            ### npm packages
+            ```bash
+            npm install -g codemantle
+            npm install -g @codemantle/panel
+            npm install -g @codemantle/agent-daemon
+            ```
+
+            See [CHANGELOG](https://github.com/XQuestCode/CodeMantle/blob/main/CHANGELOG.md) for details.
           releaseDraft: false
           prerelease: false
           args: --bundles ${{ matrix.bundles }}
 
-      - name: Upload Windows .exe artifacts
+      - name: Upload Windows installer
         if: matrix.os_name == 'windows' && success()
         uses: actions/upload-artifact@v4
         with:
-          name: codemantle-desktop-windows-${{ github.ref_name }}
-          path: |
-            apps/desktop-app/src-tauri/target/release/bundle/nsis/*.exe
-            apps/desktop-app/src-tauri/target/release/bundle/msi/*.msi
-            packages/agent-daemon/bin/codemantle-agent.exe
+          name: CodeMantle-Windows-${{ github.ref_name }}
+          path: apps/desktop-app/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: warn
 
-      - name: Upload macOS .dmg artifacts
+      - name: Upload macOS installer
         if: matrix.os_name == 'macos' && success()
         uses: actions/upload-artifact@v4
         with:
-          name: codemantle-desktop-macos-${{ github.ref_name }}
-          path: |
-            apps/desktop-app/src-tauri/target/release/bundle/dmg/*.dmg
-            packages/agent-daemon/bin/codemantle-agent-macos
+          name: CodeMantle-macOS-${{ github.ref_name }}
+          path: apps/desktop-app/src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: warn

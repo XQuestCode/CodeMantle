@@ -1,5 +1,9 @@
 # codemantle
 
+[![npm version](https://img.shields.io/npm/v/codemantle?color=cb3837&logo=npm)](https://www.npmjs.com/package/codemantle)
+[![npm downloads](https://img.shields.io/npm/dm/codemantle?color=blue)](https://www.npmjs.com/package/codemantle)
+[![License](https://img.shields.io/github/license/XQuestCode/CodeMantle)](../../LICENSE)
+
 Unified CodeMantle orchestrator CLI.
 
 This package provides a single `codemantle` command that delegates to:
