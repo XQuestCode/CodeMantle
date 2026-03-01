@@ -186,7 +186,7 @@ export class AuthService {
       return { ok: false, error: "invalid_credentials" };
     }
 
-    const requiresMfa = this.config.mfaRequiredForAllUsers || Boolean(user.totpSecret);
+    const requiresMfa = this.config.mfaEnabled && (this.config.mfaRequiredForAllUsers || Boolean(user.totpSecret));
     if (requiresMfa) {
       if (!user.totpSecret) {
         return { ok: false, error: "mfa_not_configured" };

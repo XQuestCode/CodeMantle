@@ -246,7 +246,9 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
         normalizeBoolean(mergedInput.AUTH_COOKIE_SECURE, values.AUTH_COOKIE_SECURE ?? DEFAULTS.AUTH_COOKIE_SECURE ?? "true") === "true",
       )
     ) ? "true" : "false";
-    values.AUTH_OWNER_2FA_PASSKEY = (mergedInput.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
+    if (enableMfa) {
+      values.AUTH_OWNER_2FA_PASSKEY = (mergedInput.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
+    }
   } finally {
     rl.close();
   }
@@ -260,7 +262,9 @@ function populateHeadlessValues(values: Record<string, string>, input: Record<st
   values.AUTH_OWNER_EMAIL = (input.AUTH_OWNER_EMAIL ?? "").trim().toLowerCase();
   values.AUTH_MFA_ENABLED = normalizeBoolean(input.AUTH_MFA_ENABLED, values.AUTH_MFA_ENABLED ?? DEFAULTS.AUTH_MFA_ENABLED ?? "true");
   values.AUTH_COOKIE_SECURE = normalizeBoolean(input.AUTH_COOKIE_SECURE, values.AUTH_COOKIE_SECURE ?? DEFAULTS.AUTH_COOKIE_SECURE ?? "true");
-  values.AUTH_OWNER_2FA_PASSKEY = (input.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
+  if (values.AUTH_MFA_ENABLED === "true") {
+    values.AUTH_OWNER_2FA_PASSKEY = (input.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
+  }
 
   const hash = (input.AUTH_OWNER_PASSWORD_HASH ?? "").trim();
   if (hash) {
