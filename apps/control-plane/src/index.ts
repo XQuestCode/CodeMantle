@@ -83,6 +83,7 @@ if (CONTROL_PLANE_ENV_FILE) {
   loadDotenv();
 }
 
+const CONTROL_PLANE_HOST = (process.env.CONTROL_PLANE_HOST ?? "127.0.0.1").trim();
 const CONTROL_PLANE_PORT = parseInt(process.env.CONTROL_PLANE_PORT ?? "8787", 10);
 const CONTROL_PLANE_API_PORT = parseInt(process.env.CONTROL_PLANE_API_PORT ?? "8788", 10);
 const REQUIRED_AGENT_PROTOCOL_VERSION_RAW = parseInt(process.env.REQUIRED_AGENT_PROTOCOL_VERSION ?? String(WS_PROTOCOL_VERSION), 10);
@@ -154,6 +155,7 @@ const configPushState = new Map<string, ConfigPushStatus>();
 let nextRequestId = 1;
 
 const wss = new WebSocketServer({
+  host: CONTROL_PLANE_HOST,
   port: CONTROL_PLANE_PORT,
   clientTracking: false,
   perMessageDeflate: false,
@@ -173,11 +175,11 @@ const uiWss = new WebSocketServer({
 });
 
 wss.on("listening", () => {
-  log(`control-plane websocket listening on ws://0.0.0.0:${CONTROL_PLANE_PORT}`);
+  log(`control-plane websocket listening on ws://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_PORT}`);
 });
 
-apiServer.listen(CONTROL_PLANE_API_PORT, () => {
-  log(`control-plane api listening on http://0.0.0.0:${CONTROL_PLANE_API_PORT}`);
+apiServer.listen(CONTROL_PLANE_API_PORT, CONTROL_PLANE_HOST, () => {
+  log(`control-plane api listening on http://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_API_PORT}`);
 });
 
 uiWss.on("connection", (ws, req) => {

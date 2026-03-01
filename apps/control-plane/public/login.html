@@ -83,7 +83,7 @@
   <body>
     <form class="panel" id="login-form">
       <h1>Sign in to CodeMantle</h1>
-      <p>Use your control-plane credentials and TOTP if enabled.</p>
+      <p>Enter your control-plane credentials to continue.</p>
 
       <label for="email">Email</label>
       <input id="email" name="email" type="email" required autocomplete="username" />
@@ -91,8 +91,11 @@
       <label for="password">Password</label>
       <input id="password" name="password" type="password" required autocomplete="current-password" />
 
-      <label for="totp">TOTP code (if enabled)</label>
-      <input id="totp" name="totp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+      <div id="totp-group" style="display:none">
+        <label for="totp">Authenticator code</label>
+        <input id="totp" name="totp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+          placeholder="6-digit code from your authenticator app" />
+      </div>
 
       <button type="submit">Sign in</button>
       <div class="error" id="error"></div>
