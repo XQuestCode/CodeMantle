@@ -7,6 +7,7 @@
 Unified CodeMantle orchestrator CLI.
 
 This package provides a single `codemantle` command that delegates to:
+
 - `@codemantle/panel` (`codemantle-panel`)
 - `@codemantle/agent-daemon` (`codemantle-agent`)
 
@@ -46,15 +47,16 @@ codemantle --agent
 
 ## Commands
 
-| Command | Description | Default Behavior |
-|---------|-------------|------------------|
-| `codemantle --panel [args...]` | Start panel | `codemantle-panel start` |
-| `codemantle --agent [args...]` | Start agent | `codemantle-agent --setup` |
-| `codemantle panel [args...]` | Panel subcommand | Pass-through to panel CLI |
-| `codemantle agent [args...]` | Agent subcommand | Pass-through to agent CLI |
-| `codemantle setup [target]` | Interactive setup | `all` (panel init + agent setup) |
+| Command                        | Description       | Default Behavior                 |
+| ------------------------------ | ----------------- | -------------------------------- |
+| `codemantle --panel [args...]` | Start panel       | `codemantle-panel start`         |
+| `codemantle --agent [args...]` | Start agent       | `codemantle-agent --setup`       |
+| `codemantle panel [args...]`   | Panel subcommand  | Pass-through to panel CLI        |
+| `codemantle agent [args...]`   | Agent subcommand  | Pass-through to agent CLI        |
+| `codemantle setup [target]`    | Interactive setup | `all` (panel init + agent setup) |
 
 **Defaults explained:**
+
 - `codemantle --panel` → `codemantle-panel start`
 - `codemantle --agent` → `codemantle-agent --setup`
 - `codemantle setup panel` → `codemantle-panel init`

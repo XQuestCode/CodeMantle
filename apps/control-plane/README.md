@@ -50,6 +50,7 @@ codemantle-panel init --non-interactive --env-file /opt/codemantle/.env \
 ```
 
 Notes:
+
 - `AUTH_OWNER_PASSWORD` is converted to `AUTH_OWNER_PASSWORD_HASH` on generation.
 - Generated files are written with restrictive permissions where supported.
 - `.env` is appended to local `.gitignore` when missing.
@@ -66,12 +67,14 @@ codemantle-panel doctor [--env-file <path>]
 ## Required and recommended environment variables
 
 Required:
+
 - `VALID_TOKENS` (comma-separated daemon auth tokens)
 - `JIT_CREDENTIAL_SIGNING_KEY`
 - `AUTH_OWNER_EMAIL`
 - `AUTH_OWNER_PASSWORD_HASH` (or `AUTH_OWNER_PASSWORD`)
 
 Core runtime:
+
 - `CONTROL_PLANE_PORT` (default `8787`)
 - `CONTROL_PLANE_API_PORT` (default `8788`)
 - `HEARTBEAT_SECONDS`
@@ -80,6 +83,7 @@ Core runtime:
 - `MAX_PROMPT_CHARS`
 
 Auth and session security:
+
 - `AUTH_MODE` (`local`, `disabled`, `oidc` stub)
 - `AUTH_MFA_ENABLED`
 - `AUTH_MFA_PROVIDER` (`authy` or `totp`, RFC6238)
@@ -91,6 +95,7 @@ Auth and session security:
 - `AUTH_CSRF_COOKIE_NAME`
 
 Schema/versioning:
+
 - `PANEL_ENV_SCHEMA_VERSION` (managed by init/migrate tooling)
 
 See `.env.example` for defaults and formatting.
@@ -165,6 +170,7 @@ npm run start
 - For production, run behind TLS/reverse proxy and keep `AUTH_COOKIE_SECURE=true`.
 
 For full architecture and security details, see:
+
 - https://github.com/XQuestCode/codemantle/blob/main/docs/architecture.md
 - https://github.com/XQuestCode/codemantle/blob/main/docs/protocol.md
 - https://github.com/XQuestCode/codemantle/blob/main/docs/security-model.md

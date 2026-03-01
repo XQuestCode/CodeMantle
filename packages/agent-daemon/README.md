@@ -47,6 +47,7 @@ This setup flow probes local dependencies, prompts for required values, and writ
 - `AGENT_AUTH_TOKEN` (must match a token in panel `VALID_TOKENS`)
 
 Common runtime variables:
+
 - `AGENT_PROJECT_ROOT` (root boundary for filesystem operations)
 - `DEVICE_ID` (stable host identity; auto-generated if absent)
 - `OPENCODE_COMMAND` (default `opencode`)
@@ -61,12 +62,14 @@ Common runtime variables:
 The npm package launches a platform-specific binary and verifies downloaded artifacts with SHA-256 checksums from release `checksums.txt`.
 
 Distribution controls:
+
 - `CODEMANTLE_AGENT_BINARY_BASE_URL` to use a private mirror.
 - `CODEMANTLE_AGENT_INSTALL_DIR` to change binary cache location.
 - `CODEMANTLE_AGENT_BINARY_PATH` to run an explicit local binary.
 - `CODEMANTLE_AGENT_SKIP_DOWNLOAD=1` to skip postinstall fetch.
 
 Supported binary targets:
+
 - Windows x64
 - macOS x64
 - macOS arm64
@@ -129,6 +132,7 @@ npm run pkg
 - unsupported platform error: use a supported OS/arch combo listed above.
 
 For protocol and security details, see:
+
 - https://github.com/XQuestCode/codemantle/blob/main/PROTOCOL.md
 - https://github.com/XQuestCode/codemantle/blob/main/docs/architecture.md
 - https://github.com/XQuestCode/codemantle/blob/main/docs/security-model.md
