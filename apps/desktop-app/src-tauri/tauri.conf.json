@@ -27,9 +27,7 @@
   "productName": "CodeMantle",
   "version": "0.1.9",
   "plugins": {
-    "autostart": {
-      "enabled": true
-    },
+    "autostart": {},
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzNDFBQzgyRDNCOEU0NjMKUldSajVMalRncXhCTXpYc1ZDaGkwbEU1Rkk2bnkxMjBwZU5QblRKcHlsSlpmaEhXbDdPS3ZvWkMK",
       "endpoints": [
