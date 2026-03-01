@@ -146,10 +146,9 @@ body {
   letter-spacing: -0.3px;
 }
 
-.logo svg {
+.logo img {
   width: 24px;
   height: 24px;
-  color: var(--accent-primary);
   filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.3));
 }
 
