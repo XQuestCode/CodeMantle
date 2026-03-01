@@ -5,6 +5,7 @@ import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft
 import './App.css'
 import { useAutoUpdater } from './updater'
 import Logo from './components/ui/Logo'
+import SettingsView from './components/SettingsView'
 
 interface SetupConfig {
   workspace_path: string
@@ -20,6 +21,8 @@ interface StepProps {
   onPrev?: () => void
   isLoading?: boolean
 }
+
+type AppView = 'wizard' | 'settings'
 
 // Step 1: Workspace Folder Picker
 function WorkspaceStep({ config, setConfig, onNext, isLoading }: StepProps) {
@@ -302,8 +305,15 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
   )
 }
 
-// Success Screen
-function SuccessScreen() {
+// Success Screen — now transitions to Settings after brief display
+function SuccessScreen({ onGoToSettings }: { onGoToSettings: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onGoToSettings()
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [onGoToSettings])
+
   return (
     <div className="step-container success">
       <div className="success-icon-large">
@@ -314,13 +324,18 @@ function SuccessScreen() {
       <p className="sub-text">
         The agent will minimize to the system tray. Click the tray icon to show/hide the window.
       </p>
+      <p className="sub-text" style={{ marginTop: 8, fontSize: 13, opacity: 0.7 }}>
+        Redirecting to settings...
+      </p>
     </div>
   )
 }
 
 function App() {
   const updater = useAutoUpdater()
+  const [view, setView] = useState<AppView>('wizard')
   const [currentStep, setCurrentStep] = useState(1)
+  const [configLoaded, setConfigLoaded] = useState(false)
   const [config, setConfig] = useState<SetupConfig>({
     workspace_path: '',
     control_plane_url: 'wss://codemantle.cloud/ws',
@@ -328,26 +343,88 @@ function App() {
     start_on_boot: false,
   })
 
+  // On mount: load saved config. If exists, go straight to settings.
+  useEffect(() => {
+    invoke<SetupConfig | null>('load_setup_config')
+      .then((saved) => {
+        if (saved) {
+          setConfig(saved)
+          setView('settings')
+        }
+        setConfigLoaded(true)
+      })
+      .catch(() => {
+        setConfigLoaded(true)
+      })
+  }, [])
+
+  // Listen for tray "settings" event
+  useEffect(() => {
+    const unlisten = listen('open-settings', () => {
+      setView('settings')
+    })
+    return () => { unlisten.then(f => f()) }
+  }, [])
+
+  const handleWizardComplete = () => {
+    // Step 4 success screen, then auto-transition to settings
+    setCurrentStep(4)
+  }
+
+  const handleGoToSettings = () => {
+    setView('settings')
+    setCurrentStep(1) // reset wizard for potential re-run
+  }
+
+  const handleBackToWizard = () => {
+    setView('wizard')
+    setCurrentStep(1)
+  }
+
+  // Don't render until we know if config exists
+  if (!configLoaded) {
+    return (
+      <div className="app" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 className="spin" size={32} style={{ color: 'var(--primary-color)' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <div className="sidebar">
         <Logo size="md" showText={true} animated={true} className="sidebar-logo" />
         
-        <div className="steps-indicator">
-          {[1, 2, 3].map((step) => (
-            <div 
-              key={step} 
-              className={`step-dot ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
-            >
-              {step < currentStep ? <CheckCircle size={16} /> : step}
+        {view === 'wizard' && currentStep < 4 && (
+          <>
+            <div className="steps-indicator">
+              {[1, 2, 3].map((step) => (
+                <div 
+                  key={step} 
+                  className={`step-dot ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
+                >
+                  {step < currentStep ? <CheckCircle size={16} /> : step}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        
-        <div className="step-labels">
-          <span className={currentStep === 1 ? 'active' : ''}>Workspace</span>
-          <span className={currentStep === 2 ? 'active' : ''}>Connection</span>
-          <span className={currentStep === 3 ? 'active' : ''}>Pre-flight</span>
+            
+            <div className="step-labels">
+              <span className={currentStep === 1 ? 'active' : ''}>Workspace</span>
+              <span className={currentStep === 2 ? 'active' : ''}>Connection</span>
+              <span className={currentStep === 3 ? 'active' : ''}>Pre-flight</span>
+            </div>
+          </>
+        )}
+
+        {/* Settings nav always available at bottom */}
+        <div className="sidebar-nav">
+          <button
+            className={`sidebar-nav-item ${view === 'settings' ? 'active' : ''}`}
+            onClick={() => setView('settings')}
+          >
+            <Settings size={18} />
+            Settings
+          </button>
         </div>
       </div>
 
@@ -358,33 +435,45 @@ function App() {
           </div>
         )}
 
-        {currentStep === 1 && (
-          <WorkspaceStep 
-            config={config} 
-            setConfig={setConfig} 
-            onNext={() => setCurrentStep(2)} 
-          />
-        )}
-        
-        {currentStep === 2 && (
-          <ConnectionStep 
-            config={config} 
-            setConfig={setConfig} 
-            onNext={() => setCurrentStep(3)} 
-            onPrev={() => setCurrentStep(1)} 
-          />
-        )}
-        
-        {currentStep === 3 && (
-          <PreflightStep 
-            config={config} 
-            setConfig={setConfig} 
-            onNext={() => setCurrentStep(4)} 
-            onPrev={() => setCurrentStep(2)} 
-          />
+        {view === 'wizard' && (
+          <>
+            {currentStep === 1 && (
+              <WorkspaceStep 
+                config={config} 
+                setConfig={setConfig} 
+                onNext={() => setCurrentStep(2)} 
+              />
+            )}
+            
+            {currentStep === 2 && (
+              <ConnectionStep 
+                config={config} 
+                setConfig={setConfig} 
+                onNext={() => setCurrentStep(3)} 
+                onPrev={() => setCurrentStep(1)} 
+              />
+            )}
+            
+            {currentStep === 3 && (
+              <PreflightStep 
+                config={config} 
+                setConfig={setConfig} 
+                onNext={handleWizardComplete} 
+                onPrev={() => setCurrentStep(2)} 
+              />
+            )}
+
+            {currentStep === 4 && <SuccessScreen onGoToSettings={handleGoToSettings} />}
+          </>
         )}
 
-        {currentStep === 4 && <SuccessScreen />}
+        {view === 'settings' && (
+          <SettingsView
+            config={config}
+            setConfig={setConfig}
+            onBackToWizard={handleBackToWizard}
+          />
+        )}
       </div>
     </div>
   )

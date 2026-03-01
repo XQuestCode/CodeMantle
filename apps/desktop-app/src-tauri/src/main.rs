@@ -273,11 +273,12 @@ async fn load_config_from_disk(app: &AppHandle) -> Result<Option<SetupConfig>, S
 
 fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std::error::Error>> {
     let show_item = MenuItem::with_id(app, "show", "Show CodeMantle", true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     
-    let menu = Menu::with_items(app, &[&show_item, &hide_item, &separator, &quit_item])?;
+    let menu = Menu::with_items(app, &[&show_item, &settings_item, &hide_item, &separator, &quit_item])?;
     
     let mut builder = TrayIconBuilder::new()
         .menu(&menu)
@@ -297,6 +298,13 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
                         let _ = window.set_focus();
+                    }
+                }
+                "settings" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                        let _ = window.emit("open-settings", true);
                     }
                 }
                 "hide" => {
