@@ -3,6 +3,7 @@
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::Write;
 use tauri::{Manager, Emitter, Runtime, State, AppHandle};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -320,56 +321,123 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std
     Ok(tray)
 }
 
+fn log_step(msg: &str) {
+    let log_path = std::env::temp_dir().join("codemantle-startup.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let _ = writeln!(file, "[{}] {}", chrono_now(), msg);
+    }
+}
+
+fn chrono_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}.{:03}", now.as_secs(), now.subsec_millis())
+}
+
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(AppState {
-            agent_process: Arc::new(Mutex::new(None)),
-            is_connected: Arc::new(AtomicBool::new(false)),
-            first_connection_registered: Arc::new(AtomicBool::new(false)),
-        })
-        .setup(|app| {
-            // Setup system tray (non-fatal — app still works without it)
-            match setup_tray(app.handle()) {
-                Ok(_tray) => {},
-                Err(e) => eprintln!("Warning: Failed to setup system tray: {}", e),
+    // Log panics to a file so we can debug release builds
+    std::panic::set_hook(Box::new(|info| {
+        let log_path = std::env::temp_dir().join("codemantle-crash.log");
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let _ = writeln!(file, "PANIC: {}", info);
+            if let Some(location) = info.location() {
+                let _ = writeln!(file, "  at {}:{}:{}", location.file(), location.line(), location.column());
             }
-            
-            // Check if this is a first run
-            let app_handle = app.handle().clone();
-            async_runtime::spawn(async move {
-                if let Ok(true) = is_first_run(app_handle.clone()).await {
-                    // First run - show setup wizard
-                    app_handle.emit("show-setup-wizard", true).ok();
-                }
-            });
-            
-            // Check if launched with --minimized flag (from autostart)
-            let args: Vec<String> = std::env::args().collect();
-            if args.contains(&"--minimized".to_string()) {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
-                }
+        }
+    }));
+
+    log_step("main() entered");
+
+    log_step("creating tauri builder");
+    let builder = tauri::Builder::default();
+
+    log_step("adding autostart plugin");
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        MacosLauncher::LaunchAgent,
+        Some(vec!["--minimized"]),
+    ));
+
+    log_step("adding dialog plugin");
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+
+    log_step("adding shell plugin");
+    let builder = builder.plugin(tauri_plugin_shell::init());
+
+    log_step("adding updater plugin");
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    log_step("adding managed state");
+    let builder = builder.manage(AppState {
+        agent_process: Arc::new(Mutex::new(None)),
+        is_connected: Arc::new(AtomicBool::new(false)),
+        first_connection_registered: Arc::new(AtomicBool::new(false)),
+    });
+
+    log_step("adding setup hook");
+    let builder = builder.setup(|app| {
+        log_step("setup() entered");
+
+        // Setup system tray (non-fatal — app still works without it)
+        log_step("setting up tray");
+        match setup_tray(app.handle()) {
+            Ok(_tray) => log_step("tray setup OK"),
+            Err(e) => {
+                log_step(&format!("tray setup FAILED: {}", e));
+                eprintln!("Warning: Failed to setup system tray: {}", e);
             }
-            
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            select_folder,
-            save_setup_config,
-            load_setup_config,
-            start_agent_daemon,
-            stop_agent_daemon,
-            check_autostart_status,
-            toggle_autostart,
-            is_first_run,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        }
+
+        // Check if this is a first run
+        log_step("spawning first-run check");
+        let app_handle = app.handle().clone();
+        async_runtime::spawn(async move {
+            if let Ok(true) = is_first_run(app_handle.clone()).await {
+                // First run - show setup wizard
+                app_handle.emit("show-setup-wizard", true).ok();
+            }
+        });
+
+        // Check if launched with --minimized flag (from autostart)
+        let args: Vec<String> = std::env::args().collect();
+        if args.contains(&"--minimized".to_string()) {
+            log_step("minimized flag detected, hiding window");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
+        }
+
+        log_step("setup() completed");
+        Ok(())
+    });
+
+    log_step("adding invoke handler");
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        select_folder,
+        save_setup_config,
+        load_setup_config,
+        start_agent_daemon,
+        stop_agent_daemon,
+        check_autostart_status,
+        toggle_autostart,
+        is_first_run,
+    ]);
+
+    log_step("calling .run()");
+    match builder.run(tauri::generate_context!()) {
+        Ok(_) => log_step("app exited normally"),
+        Err(e) => {
+            log_step(&format!("app .run() returned error: {}", e));
+            eprintln!("error while running tauri application: {}", e);
+            std::process::exit(1);
+        }
+    }
 }

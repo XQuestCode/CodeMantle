@@ -4,7 +4,7 @@ version = "0.1.2"
 edition = "2021"
 
 [dependencies]
-tauri = { version = "2.0", features = ["tray-icon", "macos-private-api"] }
+tauri = { version = "2.0", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.0"
 tauri-plugin-dialog = "2.0"
 tauri-plugin-shell = "2.0"
@@ -23,6 +23,6 @@ custom-protocol = ["tauri/custom-protocol"]
 [profile.release]
 opt-level = 3
 lto = true
-strip = true
+strip = false
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
