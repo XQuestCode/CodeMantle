@@ -38,9 +38,24 @@ jobs:
       - name: Build sidecar binaries for desktop bundle
         run: |
           npm ci
-          npx pkg . --target node18-win-x64 --output bin/codemantle-agent.exe
-          npx pkg . --target node18-macos-x64 --output bin/codemantle-agent-macos
-          npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux
+          npm run build
+        working-directory: packages/agent-daemon
+
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        run: npx pkg . --target node18-win-x64 --output bin/codemantle-agent.exe
+        working-directory: packages/agent-daemon
+
+      - name: Package macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          npx pkg . --target node18-x64 --output bin/codemantle-agent-macos
+          npx pkg . --target node18-arm64 --output bin/codemantle-agent-darwin-arm64
+        working-directory: packages/agent-daemon
+
+      - name: Package Linux binary
+        if: runner.os == 'Linux'
+        run: npx pkg . --target node18-linux-x64 --output bin/codemantle-agent-linux
         working-directory: packages/agent-daemon
 
       - name: Optional Windows signing hook
