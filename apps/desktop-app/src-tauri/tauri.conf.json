@@ -9,7 +9,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "identifier": "com.codemantle.desktop",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -63,25 +62,7 @@
     "trayIcon": {
       "id": "main-tray",
       "iconPath": "icons/icon.png",
-      "tooltip": "CodeMantle Agent",
-      "menu": [
-        {
-          "id": "show",
-          "text": "Show CodeMantle"
-        },
-        {
-          "id": "hide",
-          "text": "Hide to Tray"
-        },
-        {
-          "id": "separator",
-          "text": "---"
-        },
-        {
-          "id": "quit",
-          "text": "Quit"
-        }
-      ]
+      "tooltip": "CodeMantle Agent"
     },
     "windows": [
       {
