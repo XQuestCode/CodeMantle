@@ -31,7 +31,7 @@ struct SetupConfig {
     start_on_boot: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ConnectionStatus {
     connected: bool,
     first_time: bool,
@@ -63,9 +63,9 @@ async fn save_setup_config(
     // Configure autostart based on user preference
     let autostart_manager = app.autolaunch();
     if config.start_on_boot {
-        autostart_manager.enable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
+        autostart_manager.enable().map_err(|e| e.to_string())?;
     } else {
-        autostart_manager.disable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
+        autostart_manager.disable().map_err(|e| e.to_string())?;
     }
     
     Ok(())
@@ -213,7 +213,7 @@ async fn stop_agent_daemon(
 #[tauri::command]
 async fn check_autostart_status(app: AppHandle) -> Result<bool, String> {
     let autostart_manager = app.autolaunch();
-    autostart_manager.is_enabled().map_err(|e: Box<dyn std::error::Error>| e.to_string())
+    autostart_manager.is_enabled().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -224,9 +224,9 @@ async fn toggle_autostart(
     let autostart_manager = app.autolaunch();
     
     if enabled {
-        autostart_manager.enable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
+        autostart_manager.enable().map_err(|e| e.to_string())?;
     } else {
-        autostart_manager.disable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
+        autostart_manager.disable().map_err(|e| e.to_string())?;
     }
     
     Ok(())
