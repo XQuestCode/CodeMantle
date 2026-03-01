@@ -3,7 +3,7 @@
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Manager, Runtime, State, AppHandle};
+use tauri::{Manager, Emitter, Runtime, State, AppHandle};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::async_runtime::{self, Mutex};
@@ -12,9 +12,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use serde::{Serialize, Deserialize};
 
 // Autostart plugin
-use tauri_plugin_autostart::{MacosLauncher, Manager as AutostartManager};
+use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_shell::ShellExt;
 
 struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
@@ -44,7 +44,7 @@ async fn select_folder(app: AppHandle) -> Result<Option<String>, String> {
         .file()
         .blocking_pick_folder();
     
-    Ok(folder_path.map(|p| p.to_string_lossy().to_string()))
+    Ok(folder_path.map(|p| p.to_string()))
 }
 
 #[tauri::command]
@@ -63,9 +63,9 @@ async fn save_setup_config(
     // Configure autostart based on user preference
     let autostart_manager = app.autolaunch();
     if config.start_on_boot {
-        autostart_manager.enable().map_err(|e| e.to_string())?;
+        autostart_manager.enable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
     } else {
-        autostart_manager.disable().map_err(|e| e.to_string())?;
+        autostart_manager.disable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
     }
     
     Ok(())
@@ -213,7 +213,7 @@ async fn stop_agent_daemon(
 #[tauri::command]
 async fn check_autostart_status(app: AppHandle) -> Result<bool, String> {
     let autostart_manager = app.autolaunch();
-    autostart_manager.is_enabled().map_err(|e| e.to_string())
+    autostart_manager.is_enabled().map_err(|e: Box<dyn std::error::Error>| e.to_string())
 }
 
 #[tauri::command]
@@ -224,9 +224,9 @@ async fn toggle_autostart(
     let autostart_manager = app.autolaunch();
     
     if enabled {
-        autostart_manager.enable().map_err(|e| e.to_string())?;
+        autostart_manager.enable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
     } else {
-        autostart_manager.disable().map_err(|e| e.to_string())?;
+        autostart_manager.disable().map_err(|e: Box<dyn std::error::Error>| e.to_string())?;
     }
     
     Ok(())
