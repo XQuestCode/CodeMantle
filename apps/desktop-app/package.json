@@ -1,7 +1,7 @@
 {
   "name": "codemantle-desktop",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "CodeMantle desktop setup and local agent launcher built with Tauri.",
   "license": "Apache-2.0",
   "author": "XQuestCode",
