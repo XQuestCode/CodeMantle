@@ -56,12 +56,41 @@ async function generateIcons() {
       .toFile(path.join(ICONS_DIR, 'icon.png'));
     console.log('  ✓ Generated icon.png');
 
-    // Generate Windows ICO file (placeholder - would need special library for real ICO)
-    await sharp(SOURCE_LOGO)
-      .resize(256, 256)
-      .png()
-      .toFile(path.join(ICONS_DIR, 'icon.ico'));
-    console.log('  ✓ Generated icon.ico');
+    // Generate Windows ICO file (proper multi-size ICO format)
+    const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+    const icoPngs = [];
+    for (const size of icoSizes) {
+      const buf = await sharp(SOURCE_LOGO)
+        .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer();
+      icoPngs.push({ size, buf });
+    }
+    // Build ICO file: header (6 bytes) + directory entries (16 bytes each) + PNG data
+    const numImages = icoPngs.length;
+    const headerSize = 6 + numImages * 16;
+    let dataOffset = headerSize;
+    const header = Buffer.alloc(6);
+    header.writeUInt16LE(0, 0);      // reserved
+    header.writeUInt16LE(1, 2);      // type: 1 = ICO
+    header.writeUInt16LE(numImages, 4);
+    const dirEntries = [];
+    for (const img of icoPngs) {
+      const entry = Buffer.alloc(16);
+      entry.writeUInt8(img.size >= 256 ? 0 : img.size, 0);  // width (0 = 256)
+      entry.writeUInt8(img.size >= 256 ? 0 : img.size, 1);  // height (0 = 256)
+      entry.writeUInt8(0, 2);    // color palette
+      entry.writeUInt8(0, 3);    // reserved
+      entry.writeUInt16LE(1, 4); // color planes
+      entry.writeUInt16LE(32, 6); // bits per pixel
+      entry.writeUInt32LE(img.buf.length, 8);  // image size
+      entry.writeUInt32LE(dataOffset, 12);     // offset
+      dirEntries.push(entry);
+      dataOffset += img.buf.length;
+    }
+    const icoBuffer = Buffer.concat([header, ...dirEntries, ...icoPngs.map(i => i.buf)]);
+    fs.writeFileSync(path.join(ICONS_DIR, 'icon.ico'), icoBuffer);
+    console.log('  ✓ Generated icon.ico (proper ICO format)');
 
     // Generate macOS ICNS (placeholder - would need special library for real ICNS)
     await sharp(SOURCE_LOGO)
