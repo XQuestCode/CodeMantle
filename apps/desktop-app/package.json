@@ -17,7 +17,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run generate-icons && tsc && vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

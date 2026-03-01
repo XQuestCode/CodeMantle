@@ -328,6 +328,7 @@ fn main() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             agent_process: Arc::new(Mutex::new(None)),
             is_connected: Arc::new(AtomicBool::new(false)),
