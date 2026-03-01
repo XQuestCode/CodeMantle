@@ -83,6 +83,10 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
+      - name: Verify Tauri CLI version
+        run: npx tauri --version
+        working-directory: apps/desktop-app
+
       - name: Build and release desktop installer
         uses: tauri-apps/tauri-action@v0
         id: tauri_build
