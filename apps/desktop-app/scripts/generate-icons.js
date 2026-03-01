@@ -32,10 +32,34 @@ async function generateIcons() {
       fs.mkdirSync(PUBLIC_ASSETS, { recursive: true });
     }
 
+    // Trim transparent padding from source logo so the icon fills the frame.
+    // The source image has significant transparent margins that make the icon
+    // appear tiny at small sizes (the shield only fills ~20% of the canvas).
+    // We add a small 5% margin back so it doesn't look cramped.
+    const trimmed = await sharp(SOURCE_LOGO).trim().toBuffer({ resolveWithObject: true });
+    const trimmedWidth = trimmed.info.width;
+    const trimmedHeight = trimmed.info.height;
+    const maxDim = Math.max(trimmedWidth, trimmedHeight);
+    const padding = Math.round(maxDim * 0.05);
+    const canvasSize = maxDim + padding * 2;
+
+    const sourceBuffer = await sharp(trimmed.data)
+      .extend({
+        top: padding + Math.round((maxDim - trimmedHeight) / 2),
+        bottom: padding + (maxDim - trimmedHeight) - Math.round((maxDim - trimmedHeight) / 2),
+        left: padding + Math.round((maxDim - trimmedWidth) / 2),
+        right: padding + (maxDim - trimmedWidth) - Math.round((maxDim - trimmedWidth) / 2),
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png()
+      .toBuffer();
+
+    console.log(`  ✓ Trimmed source: ${trimmedWidth}x${trimmedHeight} → ${canvasSize}x${canvasSize} (with 5% margin)`);
+
     // Generate PNG icons in different sizes
     for (const size of ICON_SIZES) {
       const outputPath = path.join(ICONS_DIR, `${size}x${size}.png`);
-      await sharp(SOURCE_LOGO)
+      await sharp(sourceBuffer)
         .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
         .png()
         .toFile(outputPath);
@@ -43,14 +67,14 @@ async function generateIcons() {
     }
 
     // Generate 128x128@2x.png (256x256 for high DPI)
-    await sharp(SOURCE_LOGO)
+    await sharp(sourceBuffer)
       .resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(path.join(ICONS_DIR, '128x128@2x.png'));
     console.log('  ✓ Generated 128x128@2x.png');
 
     // Generate main icon.png for tray
-    await sharp(SOURCE_LOGO)
+    await sharp(sourceBuffer)
       .resize(64, 64, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(path.join(ICONS_DIR, 'icon.png'));
@@ -60,7 +84,7 @@ async function generateIcons() {
     const icoSizes = [16, 24, 32, 48, 64, 128, 256];
     const icoPngs = [];
     for (const size of icoSizes) {
-      const buf = await sharp(SOURCE_LOGO)
+      const buf = await sharp(sourceBuffer)
         .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
         .png()
         .toBuffer();
@@ -93,30 +117,32 @@ async function generateIcons() {
     console.log('  ✓ Generated icon.ico (proper ICO format)');
 
     // Generate macOS ICNS (placeholder - would need special library for real ICNS)
-    await sharp(SOURCE_LOGO)
+    await sharp(sourceBuffer)
       .resize(512, 512)
       .png()
       .toFile(path.join(ICONS_DIR, 'icon.icns'));
     console.log('  ✓ Generated icon.icns');
 
-    // Copy logo to public assets for frontend
-    fs.copyFileSync(SOURCE_LOGO, path.join(PUBLIC_ASSETS, 'logo.png'));
-    console.log('  ✓ Copied logo.png to public/assets');
+    // Save trimmed logo to public assets for frontend
+    await sharp(sourceBuffer)
+      .png()
+      .toFile(path.join(PUBLIC_ASSETS, 'logo.png'));
+    console.log('  ✓ Generated logo.png in public/assets');
     
-    // Generate smaller versions for UI
-    await sharp(SOURCE_LOGO)
+    // Generate smaller versions for UI (using trimmed source)
+    await sharp(sourceBuffer)
       .resize(64, 64, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(path.join(PUBLIC_ASSETS, 'logo-64.png'));
     console.log('  ✓ Generated logo-64.png');
     
-    await sharp(SOURCE_LOGO)
+    await sharp(sourceBuffer)
       .resize(128, 128, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(path.join(PUBLIC_ASSETS, 'logo-128.png'));
     console.log('  ✓ Generated logo-128.png');
 
-    await sharp(SOURCE_LOGO)
+    await sharp(sourceBuffer)
       .resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(path.join(PUBLIC_ASSETS, 'logo-256.png'));

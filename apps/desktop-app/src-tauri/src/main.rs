@@ -435,7 +435,41 @@ fn main() {
     match builder.run(tauri::generate_context!()) {
         Ok(_) => log_step("app exited normally"),
         Err(e) => {
-            log_step(&format!("app .run() returned error: {}", e));
+            let err_msg = e.to_string();
+            log_step(&format!("app .run() returned error: {}", err_msg));
+
+            // Detect WebView2 missing — the most common cause of instant crash on Windows
+            let is_webview2_error = err_msg.contains("WebView2")
+                || err_msg.contains("webview2")
+                || err_msg.contains("EdgeWebView")
+                || err_msg.contains("HRESULT")
+                || err_msg.contains("0x80070002");
+
+            if is_webview2_error {
+                log_step("detected WebView2 runtime missing or failed to initialize");
+                #[cfg(target_os = "windows")]
+                {
+                    // Show a native message box so the user knows what went wrong
+                    use std::ffi::OsStr;
+                    use std::os::windows::ffi::OsStrExt;
+                    let text: Vec<u16> = OsStr::new(
+                        "CodeMantle requires the Microsoft Edge WebView2 Runtime.\n\n\
+                         Please install it from:\n\
+                         https://developer.microsoft.com/en-us/microsoft-edge/webview2/\n\n\
+                         After installing WebView2, restart CodeMantle."
+                    ).encode_wide().chain(Some(0)).collect();
+                    let caption: Vec<u16> = OsStr::new("CodeMantle — Missing WebView2")
+                        .encode_wide().chain(Some(0)).collect();
+                    unsafe {
+                        #[link(name = "user32")]
+                        extern "system" {
+                            fn MessageBoxW(hwnd: *mut std::ffi::c_void, text: *const u16, caption: *const u16, utype: u32) -> i32;
+                        }
+                        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), 0x10 /* MB_ICONERROR */);
+                    }
+                }
+            }
+
             eprintln!("error while running tauri application: {}", e);
             std::process::exit(1);
         }

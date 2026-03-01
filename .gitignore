@@ -4,7 +4,6 @@ npm-debug.log*
 
 # Build artifacts
 dist/
-bin/
 coverage/
 
 # Tauri / Rust
