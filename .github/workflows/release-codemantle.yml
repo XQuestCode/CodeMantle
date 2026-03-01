@@ -25,13 +25,16 @@ jobs:
         run: npm ci
 
       - name: Verify package version matches tag
+        id: version_check
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION="$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("packages/codemantle/package.json","utf8"));process.stdout.write(p.version)')"
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "Tag version $TAG_VERSION does not match package version $PKG_VERSION"
-            exit 1
+            echo "Tag version $TAG_VERSION does not match package version $PKG_VERSION — skipping publish"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run package checks
@@ -54,7 +57,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: packages/codemantle
-        run: npm publish --access public --provenance --registry https://registry.npmjs.org
+        run: |
+          PKG_NAME="$(node -e 'process.stdout.write(require("./package.json").name)')"
+          PKG_VERSION="$(node -e 'process.stdout.write(require("./package.json").version)')"
+          if npm view "${PKG_NAME}@${PKG_VERSION}" version 2>/dev/null; then
+            echo "⏭️ ${PKG_NAME}@${PKG_VERSION} already published — skipping"
+          else
+            npm publish --access public --provenance --registry https://registry.npmjs.org
+          fi
 
       - name: Create or update GitHub release on tag
         if: startsWith(github.ref, 'refs/tags/')
