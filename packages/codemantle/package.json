@@ -1,6 +1,6 @@
 {
   "name": "codemantle",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "CodeMantle orchestrator CLI for panel and agent setup/runtime.",
   "private": false,
   "license": "Apache-2.0",
@@ -41,7 +41,7 @@
     "registry": "https://registry.npmjs.org"
   },
   "dependencies": {
-    "@codemantle/agent-daemon": "^0.1.7",
-    "@codemantle/panel": "^0.1.7"
+    "@codemantle/agent-daemon": "^0.1.9",
+    "@codemantle/panel": "^0.1.9"
   }
 }

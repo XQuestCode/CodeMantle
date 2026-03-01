@@ -25,7 +25,7 @@
     }
   },
   "productName": "CodeMantle",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "plugins": {
     "autostart": {
       "enabled": true
