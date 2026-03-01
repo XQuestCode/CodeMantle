@@ -116,6 +116,12 @@ async function generateIcons() {
       .toFile(path.join(PUBLIC_ASSETS, 'logo-128.png'));
     console.log('  ✓ Generated logo-128.png');
 
+    await sharp(SOURCE_LOGO)
+      .resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toFile(path.join(PUBLIC_ASSETS, 'logo-256.png'));
+    console.log('  ✓ Generated logo-256.png');
+
     // Generate SVG placeholder for web
     const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
       <text x="50" y="55" text-anchor="middle" font-size="60" fill="#3b82f6">CM</text>

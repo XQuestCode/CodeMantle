@@ -9,10 +9,10 @@ interface LogoProps {
 }
 
 const sizeMap = {
-  sm: { img: 32, text: 'text-lg' },
-  md: { img: 40, text: 'text-xl' },
-  lg: { img: 48, text: 'text-2xl' },
-  xl: { img: 64, text: 'text-3xl' },
+  sm: { img: 36, text: 'text-lg' },
+  md: { img: 48, text: 'text-xl' },
+  lg: { img: 64, text: 'text-2xl' },
+  xl: { img: 96, text: 'text-3xl' },
 }
 
 const Logo = React.memo<LogoProps>(({
@@ -36,7 +36,7 @@ const Logo = React.memo<LogoProps>(({
         transition={{ type: 'spring', stiffness: 400, damping: 10 }}
       >
         <img
-          src="/assets/logo-128.png"
+          src="/assets/logo-256.png"
           alt="CodeMantle Logo"
           width={img}
           height={img}
