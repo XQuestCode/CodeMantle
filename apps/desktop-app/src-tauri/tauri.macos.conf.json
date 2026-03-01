@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../../../packages/agent-daemon/bin/codemantle-agent-macos": "./sidecar/codemantle-agent-macos"
+    }
+  }
+}

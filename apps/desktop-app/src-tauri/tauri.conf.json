@@ -15,12 +15,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "resources": {
-      "../../../packages/agent-daemon/bin/codemantle-agent.exe": "./sidecar/codemantle-agent.exe",
-      "../../../packages/agent-daemon/bin/codemantle-agent-macos": "./sidecar/codemantle-agent-macos",
-      "../../../packages/agent-daemon/bin/codemantle-agent-linux": "./sidecar/codemantle-agent-linux"
-    }
+    ]
   },
   "productName": "CodeMantle",
   "version": "0.1.7",
