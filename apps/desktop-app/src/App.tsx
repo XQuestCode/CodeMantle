@@ -493,24 +493,23 @@ function App() {
         <Logo size="md" showText={true} animated={true} className="sidebar-logo" />
         
         {view === 'wizard' && currentStep < 4 && (
-          <>
-            <div className="steps-indicator">
-              {[1, 2, 3].map((step) => (
-                <div 
-                  key={step} 
-                  className={`step-dot ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
-                >
+          <div className="steps-nav">
+            {[
+              { step: 1, label: 'Workspace' },
+              { step: 2, label: 'Connection' },
+              { step: 3, label: 'Pre-flight' },
+            ].map(({ step, label }) => (
+              <div
+                key={step}
+                className={`step-row ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
+              >
+                <div className="step-dot">
                   {step < currentStep ? <CheckCircle size={16} /> : step}
                 </div>
-              ))}
-            </div>
-            
-            <div className="step-labels">
-              <span className={currentStep === 1 ? 'active' : ''}>Workspace</span>
-              <span className={currentStep === 2 ? 'active' : ''}>Connection</span>
-              <span className={currentStep === 3 ? 'active' : ''}>Pre-flight</span>
-            </div>
-          </>
+                <span className="step-label">{label}</span>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Settings nav always available at bottom */}

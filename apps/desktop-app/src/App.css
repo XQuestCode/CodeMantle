@@ -54,14 +54,23 @@ body {
   font-weight: 600;
 }
 
-.steps-indicator {
+.steps-nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 16px;
 }
 
-.step-dot {
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+.step-row .step-dot {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -71,33 +80,27 @@ body {
   justify-content: center;
   font-size: 14px;
   font-weight: 600;
+  flex-shrink: 0;
   transition: all 0.3s ease;
 }
 
-.step-dot.active {
+.step-row.active .step-dot {
   background: var(--primary-color);
   color: white;
 }
 
-.step-dot.completed {
+.step-row.completed .step-dot {
   background: var(--success);
   color: white;
 }
 
-.step-labels {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-left: 8px;
-}
-
-.step-labels span {
+.step-row .step-label {
   font-size: 14px;
   color: var(--text-secondary);
   transition: color 0.3s ease;
 }
 
-.step-labels span.active {
+.step-row.active .step-label {
   color: var(--text-primary);
   font-weight: 500;
 }

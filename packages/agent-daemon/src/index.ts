@@ -683,7 +683,9 @@ function scheduleReconnect(): void {
     reconnectTimer = null;
     connect();
   }, delay);
-  reconnectTimer.unref();
+  // NOTE: Do NOT .unref() this timer — it must keep the event loop alive
+  // so the process does not exit before the reconnect fires.
+  // The shutdown() function already clears this timer for clean exits.
 }
 
 async function handleDirectoryRequest(
