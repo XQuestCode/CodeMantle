@@ -239,6 +239,51 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
       normalizeBoolean(mergedInput.AUTH_MFA_ENABLED, values.AUTH_MFA_ENABLED ?? DEFAULTS.AUTH_MFA_ENABLED ?? "true") === "true",
     );
     values.AUTH_MFA_ENABLED = enableMfa ? "true" : "false";
+
+    if (enableMfa) {
+      const mfaProvider = await promptChoice(
+        rl,
+        "MFA provider",
+        ["totp", "authy"],
+        (mergedInput.AUTH_MFA_PROVIDER ?? values.AUTH_MFA_PROVIDER ?? DEFAULTS.AUTH_MFA_PROVIDER ?? "totp").trim().toLowerCase(),
+      );
+      values.AUTH_MFA_PROVIDER = mfaProvider;
+
+      const secret = (mergedInput.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
+      values.AUTH_OWNER_2FA_PASSKEY = secret;
+
+      const issuer = "CodeMantle";
+      const accountName = values.AUTH_OWNER_EMAIL || "owner";
+      const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;
+
+      process.stdout.write("\n");
+      process.stdout.write("=== MFA Setup Instructions ===\n");
+      process.stdout.write("\n");
+      if (mfaProvider === "authy") {
+        process.stdout.write("Provider: Authy\n");
+        process.stdout.write("Open the Authy app on your device and add a new account.\n");
+      } else {
+        process.stdout.write("Provider: TOTP (Google Authenticator, 1Password, Bitwarden, etc.)\n");
+      }
+      process.stdout.write("\n");
+      process.stdout.write("Add this account to your authenticator app using one of the methods below:\n");
+      process.stdout.write("\n");
+      process.stdout.write("  Manual entry key:\n");
+      process.stdout.write(`    ${secret}\n`);
+      process.stdout.write("\n");
+      process.stdout.write("  Or use this otpauth URI (paste into your app or generate a QR code):\n");
+      process.stdout.write(`    ${otpauthUri}\n`);
+      process.stdout.write("\n");
+      process.stdout.write("  Account: " + accountName + "\n");
+      process.stdout.write("  Type: TOTP | Digits: 6 | Period: 30s\n");
+      process.stdout.write("\n");
+      process.stdout.write("Save this secret in a secure location. You will need it to log in.\n");
+      process.stdout.write("===============================\n");
+      process.stdout.write("\n");
+
+      await rl.question("Press Enter once you have saved your MFA secret...");
+    }
+
     values.AUTH_COOKIE_SECURE = (
       await promptBoolean(
         rl,
@@ -246,9 +291,6 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
         normalizeBoolean(mergedInput.AUTH_COOKIE_SECURE, values.AUTH_COOKIE_SECURE ?? DEFAULTS.AUTH_COOKIE_SECURE ?? "true") === "true",
       )
     ) ? "true" : "false";
-    if (enableMfa) {
-      values.AUTH_OWNER_2FA_PASSKEY = (mergedInput.AUTH_OWNER_2FA_PASSKEY ?? "").trim() || randomBase32Secret(20);
-    }
   } finally {
     rl.close();
   }
@@ -310,6 +352,26 @@ async function promptBoolean(rl: ReturnType<typeof createInterface>, label: stri
     return false;
   }
   return promptBoolean(rl, label, fallback);
+}
+
+async function promptChoice(
+  rl: ReturnType<typeof createInterface>,
+  label: string,
+  choices: string[],
+  fallback: string,
+): Promise<string> {
+  const display = choices.map((c) => (c === fallback ? c.toUpperCase() : c)).join("/");
+  const raw = await rl.question(`${label} (${display}): `);
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  const match = choices.find((c) => c.toLowerCase() === normalized);
+  if (match) {
+    return match;
+  }
+  process.stdout.write(`  Invalid choice. Options: ${choices.join(", ")}\n`);
+  return promptChoice(rl, label, choices, fallback);
 }
 
 function serializeEnv(values: Record<string, string>): string {

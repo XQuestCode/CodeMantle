@@ -64,6 +64,55 @@ codemantle-panel migrate-env [--env-file <path>] [--write]
 codemantle-panel doctor [--env-file <path>]
 ```
 
+## MFA setup
+
+When MFA is enabled during interactive setup (`codemantle-panel init` or first-run),
+the CLI walks through the full configuration:
+
+1. **Provider selection** — choose between `totp` (Google Authenticator, 1Password,
+   Bitwarden, etc.) or `authy`.
+2. **Setup instructions** — the generated TOTP secret is displayed as both a manual
+   entry key and an `otpauth://` URI that can be pasted into any authenticator app
+   or used to generate a QR code.
+3. **Confirmation gate** — setup pauses until you press Enter, so the secret is not
+   accidentally scrolled past.
+
+Example output:
+
+```
+Enable MFA (Y/n): y
+MFA provider (TOTP/authy): totp
+
+=== MFA Setup Instructions ===
+
+Provider: TOTP (Google Authenticator, 1Password, Bitwarden, etc.)
+
+Add this account to your authenticator app using one of the methods below:
+
+  Manual entry key:
+    JBSWY3DPEHPK3PXP...
+
+  Or use this otpauth URI (paste into your app or generate a QR code):
+    otpauth://totp/CodeMantle:owner%40example.com?secret=JBSWY3DP...&issuer=CodeMantle&digits=6&period=30
+
+  Account: owner@example.com
+  Type: TOTP | Digits: 6 | Period: 30s
+
+Save this secret in a secure location. You will need it to log in.
+===============================
+
+Press Enter once you have saved your MFA secret...
+```
+
+For headless/non-interactive init, pass the secret directly:
+
+```bash
+codemantle-panel init --non-interactive \
+  --set AUTH_MFA_ENABLED=true \
+  --set AUTH_MFA_PROVIDER=totp \
+  --set AUTH_OWNER_2FA_PASSKEY="YOUR_BASE32_SECRET"
+```
+
 ## Required and recommended environment variables
 
 Required:
