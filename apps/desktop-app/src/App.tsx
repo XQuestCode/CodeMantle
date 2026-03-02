@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor } from 'lucide-react'
+import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff } from 'lucide-react'
 import './App.css'
 import { useAutoUpdater } from './updater'
 import Logo from './components/ui/Logo'
 import SettingsView from './components/SettingsView'
+import { normalizeControlPlaneUrl, validateControlPlaneUrl } from './utils'
 
 interface SetupConfig {
   workspace_path: string
@@ -81,15 +82,14 @@ function WorkspaceStep({ config, setConfig, onNext, isLoading }: StepProps) {
 // Step 2: Connection Settings
 function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
   const [errors, setErrors] = useState<{[key: string]: string}>({})
+  const [showToken, setShowToken] = useState(false)
+  const [showTokenHelp, setShowTokenHelp] = useState(false)
 
   const validate = () => {
     const newErrors: {[key: string]: string} = {}
     
-    if (!config.control_plane_url) {
-      newErrors.control_plane_url = 'Control Plane URL is required'
-    } else if (!config.control_plane_url.startsWith('wss://') && !config.control_plane_url.startsWith('ws://')) {
-      newErrors.control_plane_url = 'URL must start with ws:// or wss://'
-    }
+    const urlError = validateControlPlaneUrl(config.control_plane_url)
+    if (urlError) newErrors.control_plane_url = urlError
     
     if (!config.auth_token) {
       newErrors.auth_token = 'Auth token is required'
@@ -100,6 +100,13 @@ function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
   }
 
   const handleNext = () => {
+    // Normalize the URL before validation
+    if (config.control_plane_url) {
+      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
+      if (normalized !== config.control_plane_url) {
+        setConfig(prev => ({ ...prev, control_plane_url: normalized }))
+      }
+    }
     if (validate()) {
       onNext()
     }
@@ -114,27 +121,79 @@ function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
       </div>
 
       <div className="form-group">
-        <label>Control Plane URL</label>
+        <label>Control Plane Server</label>
         <input
           type="text"
           value={config.control_plane_url}
           onChange={(e) => setConfig(prev => ({ ...prev, control_plane_url: e.target.value }))}
-          placeholder="wss://codemantle.cloud/ws"
+          placeholder="codemantle.cloud/ws"
           className={errors.control_plane_url ? 'error' : ''}
         />
+        <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol is added automatically.</span>
         {errors.control_plane_url && <span className="field-error">{errors.control_plane_url}</span>}
       </div>
 
       <div className="form-group">
         <label>Agent Auth Token</label>
-        <input
-          type="password"
-          value={config.auth_token}
-          onChange={(e) => setConfig(prev => ({ ...prev, auth_token: e.target.value }))}
-          placeholder="Enter your auth token"
-          className={errors.auth_token ? 'error' : ''}
-        />
+        <div className="input-with-action">
+          <input
+            type={showToken ? 'text' : 'password'}
+            value={config.auth_token}
+            onChange={(e) => setConfig(prev => ({ ...prev, auth_token: e.target.value }))}
+            placeholder="Enter your VALID_TOKENS value"
+            className={errors.auth_token ? 'error' : ''}
+          />
+          <button
+            type="button"
+            className="input-action-btn"
+            onClick={() => setShowToken(!showToken)}
+            title={showToken ? 'Hide token' : 'Show token'}
+          >
+            {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
         {errors.auth_token && <span className="field-error">{errors.auth_token}</span>}
+
+        <button
+          type="button"
+          className="token-help-toggle"
+          onClick={() => setShowTokenHelp(!showTokenHelp)}
+        >
+          <Info size={14} />
+          {showTokenHelp ? 'Hide instructions' : 'Where do I find this token?'}
+        </button>
+
+        {showTokenHelp && (
+          <div className="token-help-box">
+            <h4>How to retrieve your Auth Token</h4>
+            <p>
+              This token must match a value in the <code>VALID_TOKENS</code> environment
+              variable on your control-plane server. Here is how to find or set it:
+            </p>
+            <ol>
+              <li>
+                <strong>Check your control-plane <code>.env</code> file</strong> for the
+                <code>VALID_TOKENS</code> variable. It contains one or more comma-separated tokens.
+              </li>
+              <li>
+                <strong>If you ran <code>bootstrap init</code></strong>, a token was auto-generated.
+                Look for <code>VALID_TOKENS=...</code> in the output or your <code>.env</code> file.
+              </li>
+              <li>
+                <strong>To generate a new token</strong>, create a random string (e.g. 32+ characters)
+                and add it to <code>VALID_TOKENS</code> on the server. Then restart the control plane.
+              </li>
+              <li>
+                <strong>Copy that exact token value</strong> and paste it above. The agent uses this
+                to authenticate its WebSocket handshake with the control plane.
+              </li>
+            </ol>
+            <p className="token-help-note">
+              Multiple agents can share the same token, or each can have a unique one
+              (comma-separated in <code>VALID_TOKENS</code>).
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="step-actions">
@@ -268,6 +327,29 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
           </div>
         )}
 
+        {status === 'ready' && (
+          <div className="connection-summary">
+            <h4>Connection Details</h4>
+            <div className="connection-summary-row">
+              <span className="connection-summary-label">Server</span>
+              <span className="connection-summary-value">{config.control_plane_url}</span>
+            </div>
+            <div className="connection-summary-row">
+              <span className="connection-summary-label">Auth Token</span>
+              <span className="connection-summary-value">
+                {config.auth_token.length > 8
+                  ? config.auth_token.slice(0, 4) + '****' + config.auth_token.slice(-4)
+                  : '****'}
+              </span>
+            </div>
+            <p className="connection-summary-note">
+              <Info size={14} />
+              This token matches a <code>VALID_TOKENS</code> entry on your control plane.
+              You can update it later in Settings.
+            </p>
+          </div>
+        )}
+
         {status === 'error' && (
           <div className="error-status">
             <span className="error-text">Connection failed. Check the logs below.</span>
@@ -338,7 +420,7 @@ function App() {
   const [configLoaded, setConfigLoaded] = useState(false)
   const [config, setConfig] = useState<SetupConfig>({
     workspace_path: '',
-    control_plane_url: 'wss://codemantle.cloud/ws',
+    control_plane_url: 'codemantle.cloud/ws',
     auth_token: '',
     start_on_boot: false,
   })

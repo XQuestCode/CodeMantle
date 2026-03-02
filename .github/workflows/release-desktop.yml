@@ -40,14 +40,14 @@ jobs:
 
       - name: Package Windows sidecar binary
         if: runner.os == 'Windows'
-        run: npx pkg . --target node18-win-x64 --output bin/codemantle-agent.exe
+        run: npx pkg dist/index.cjs --target node18-win-x64 --output bin/codemantle-agent.exe --config package.json
         working-directory: packages/agent-daemon
 
       - name: Package macOS sidecar binary
         if: runner.os == 'macOS'
         run: |
-          npx pkg . --target node18-x64 --output bin/codemantle-agent-macos
-          npx pkg . --target node18-arm64 --output bin/codemantle-agent-darwin-arm64
+          npx pkg dist/index.cjs --target node18-x64 --output bin/codemantle-agent-macos --config package.json
+          npx pkg dist/index.cjs --target node18-arm64 --output bin/codemantle-agent-darwin-arm64 --config package.json
         working-directory: packages/agent-daemon
 
       - name: Verify Tauri CLI version

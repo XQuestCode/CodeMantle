@@ -1,6 +1,6 @@
 {
   "name": "@codemantle/agent-daemon",
-  "version": "0.1.13",
+  "version": "0.1.15",
   "description": "CodeMantle host daemon for secure reverse control-plane orchestration.",
   "private": false,
   "license": "Apache-2.0",
@@ -34,11 +34,12 @@
     "codemantle-agent": "./bin/codemantle-agent.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run build:cli",
+    "build": "tsc -p tsconfig.json && npm run build:cli && npm run build:pkg-bundle",
     "build:cli": "node scripts/build-cli.mjs",
+    "build:pkg-bundle": "esbuild dist/index.js --bundle --platform=node --format=cjs --outfile=dist/index.cjs --banner:js=\"/* CodeMantle Agent Daemon - bundled for pkg */\"",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "pkg": "pkg . --out-path=bin",
+    "pkg": "pkg dist/index.cjs --out-path=bin --config package.json",
     "postinstall": "node scripts/install.mjs"
   },
   "publishConfig": {
@@ -53,15 +54,13 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "@types/ws": "^8.5.14",
+    "esbuild": "0.27.3",
     "pkg": "^5.8.1",
     "tsx": "^4.19.2",
     "typescript": "^5.8.2"
   },
   "pkg": {
-    "entry": "dist/index.js",
-    "scripts": [
-      "dist/**/*.js"
-    ],
+    "scripts": [],
     "assets": [
       "package.json",
       ".env"

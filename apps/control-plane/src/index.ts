@@ -132,6 +132,9 @@ const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
   "/login": { file: "login.html", type: "text/html; charset=utf-8" },
   "/login.html": { file: "login.html", type: "text/html; charset=utf-8" },
   "/login.js": { file: "login.js", type: "application/javascript; charset=utf-8" },
+  "/logo.png": { file: "logo.png", type: "image/png" },
+  "/logo-64.png": { file: "logo-64.png", type: "image/png" },
+  "/logo-128.png": { file: "logo-128.png", type: "image/png" },
 };
 
 const validTokens = parseValidTokens(process.env.VALID_TOKENS ?? "");
@@ -635,7 +638,7 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
     if (method === "GET") {
       const staticAsset = STATIC_ASSETS[pathname];
       if (staticAsset) {
-        if (pathname === "/login" || pathname === "/login.html" || pathname === "/login.js" || pathname === "/styles.css") {
+        if (pathname === "/login" || pathname === "/login.html" || pathname === "/login.js" || pathname === "/styles.css" || pathname === "/logo.png" || pathname === "/logo-64.png" || pathname === "/logo-128.png") {
           await sendStaticAsset(response, staticAsset.file, staticAsset.type);
           return;
         }

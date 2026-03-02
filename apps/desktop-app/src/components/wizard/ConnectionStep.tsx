@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import Button from '../ui/Button'
 import Input from '../ui/Input'
 import { StepProps } from '../../types'
+import { normalizeControlPlaneUrl, validateControlPlaneUrl } from '../../utils'
 
 interface FormErrors {
   control_plane_url?: string
@@ -25,11 +26,7 @@ const ConnectionStep = React.memo<StepProps>(({
   const validateField = useCallback((name: string, value: string): string | undefined => {
     switch (name) {
       case 'control_plane_url':
-        if (!value) return 'Control Plane URL is required'
-        if (!value.startsWith('wss://') && !value.startsWith('ws://')) {
-          return 'URL must start with ws:// or wss://'
-        }
-        return undefined
+        return validateControlPlaneUrl(value)
       case 'auth_token':
         if (!value) return 'Auth token is required'
         if (value.length < 10) return 'Auth token must be at least 10 characters'
@@ -65,19 +62,38 @@ const ConnectionStep = React.memo<StepProps>(({
     setTouched(prev => ({ ...prev, [field]: true }))
     const value = config[field]
     if (typeof value === 'string') {
+      // Normalize the URL on blur so the user sees the resolved value
+      if (field === 'control_plane_url' && value) {
+        const normalized = normalizeControlPlaneUrl(value)
+        if (normalized !== value) {
+          setConfig(prev => ({ ...prev, control_plane_url: normalized }))
+        }
+        const error = validateControlPlaneUrl(normalized)
+        if (error) {
+          setErrors(prev => ({ ...prev, [field]: error }))
+        }
+        return
+      }
       const error = validateField(field, value)
       if (error) {
         setErrors(prev => ({ ...prev, [field]: error }))
       }
     }
-  }, [config, validateField])
+  }, [config, validateField, setConfig])
 
   const handleNext = useCallback(() => {
+    // Normalize the URL before final validation
+    if (config.control_plane_url) {
+      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
+      if (normalized !== config.control_plane_url) {
+        setConfig(prev => ({ ...prev, control_plane_url: normalized }))
+      }
+    }
     setTouched({ control_plane_url: true, auth_token: true })
     if (validateForm()) {
       onNext()
     }
-  }, [validateForm, onNext])
+  }, [config.control_plane_url, setConfig, validateForm, onNext])
 
   const canProceed = useMemo(() => 
     Boolean(config.control_plane_url && config.auth_token) && !isLoading
@@ -108,13 +124,13 @@ const ConnectionStep = React.memo<StepProps>(({
 
       <div className="form-container">
         <Input
-          label="Control Plane URL"
+          label="Control Plane Server"
           value={config.control_plane_url}
           onChange={handleChange('control_plane_url')}
           onBlur={handleBlur('control_plane_url')}
-          placeholder="wss://codemantle.cloud/ws"
+          placeholder="codemantle.cloud/ws"
           error={touched.control_plane_url ? errors.control_plane_url : undefined}
-          helperText="WebSocket URL for the control plane"
+          helperText="Enter your server domain (e.g. myserver.com). Protocol is added automatically."
         />
 
         <Input

@@ -254,7 +254,7 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
 
       const issuer = "CodeMantle";
       const accountName = values.AUTH_OWNER_EMAIL || "owner";
-      const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;
+      const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30&algorithm=SHA1`;
 
       process.stdout.write("\n");
       process.stdout.write("=== MFA Setup Instructions ===\n");
@@ -262,17 +262,27 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
       if (mfaProvider === "authy") {
         process.stdout.write("Provider: Authy\n");
         process.stdout.write("Open the Authy app on your device and add a new account.\n");
+        process.stdout.write("\n");
+        process.stdout.write("  IMPORTANT: Authy defaults to 7-digit / 10-second codes for manual entry,\n");
+        process.stdout.write("  but CodeMantle uses 6-digit / 30-second codes. You MUST use the otpauth\n");
+        process.stdout.write("  URI below (not the manual key) so Authy picks up the correct settings.\n");
+        process.stdout.write("\n");
+        process.stdout.write("  otpauth URI (paste into Authy or generate a QR code to scan):\n");
+        process.stdout.write(`    ${otpauthUri}\n`);
+        process.stdout.write("\n");
+        process.stdout.write("  Backup — manual entry key (for recovery or other TOTP apps only):\n");
+        process.stdout.write(`    ${secret}\n`);
       } else {
         process.stdout.write("Provider: TOTP (Google Authenticator, 1Password, Bitwarden, etc.)\n");
+        process.stdout.write("\n");
+        process.stdout.write("Add this account to your authenticator app using one of the methods below:\n");
+        process.stdout.write("\n");
+        process.stdout.write("  Manual entry key:\n");
+        process.stdout.write(`    ${secret}\n`);
+        process.stdout.write("\n");
+        process.stdout.write("  Or use this otpauth URI (paste into your app or generate a QR code):\n");
+        process.stdout.write(`    ${otpauthUri}\n`);
       }
-      process.stdout.write("\n");
-      process.stdout.write("Add this account to your authenticator app using one of the methods below:\n");
-      process.stdout.write("\n");
-      process.stdout.write("  Manual entry key:\n");
-      process.stdout.write(`    ${secret}\n`);
-      process.stdout.write("\n");
-      process.stdout.write("  Or use this otpauth URI (paste into your app or generate a QR code):\n");
-      process.stdout.write(`    ${otpauthUri}\n`);
       process.stdout.write("\n");
       process.stdout.write("  Account: " + accountName + "\n");
       process.stdout.write("  Type: TOTP | Digits: 6 | Period: 30s\n");

@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import logoSrc from '../../assets/logo-256.png'
 
 interface LogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl'
@@ -36,7 +37,7 @@ const Logo = React.memo<LogoProps>(({
         transition={{ type: 'spring', stiffness: 400, damping: 10 }}
       >
         <img
-          src="/assets/logo-256.png"
+          src={logoSrc}
           alt="CodeMantle Logo"
           width={img}
           height={img}

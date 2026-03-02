@@ -517,7 +517,7 @@ function verifyTotpCode(secretBase32: string, code: string, now: number): boolea
     return false;
   }
   const currentStep = Math.floor(now / 30000);
-  for (let drift = -1; drift <= 1; drift += 1) {
+  for (let drift = -2; drift <= 2; drift += 1) {
     const candidate = generateHotp(secret, currentStep + drift);
     if (secureEqual(candidate, code)) {
       return true;

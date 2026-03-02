@@ -26,3 +26,53 @@ export function formatTimestamp(timestamp: number): string {
     second: '2-digit',
   })
 }
+
+/**
+ * Normalize a user-provided control plane URL into a full WebSocket URL.
+ *
+ * Accepts bare domains (e.g. "codemantle.xquest.dev"), domains with ports,
+ * or full ws:// / wss:// URLs.  Returns the URL unchanged if it already
+ * starts with ws:// or wss://.
+ */
+export function normalizeControlPlaneUrl(input: string): string {
+  let url = input.trim();
+  if (!url) return url;
+
+  // Strip accidental http(s):// — user likely copy-pasted a browser URL
+  if (url.startsWith("https://")) {
+    url = "wss://" + url.slice("https://".length);
+  } else if (url.startsWith("http://")) {
+    url = "ws://" + url.slice("http://".length);
+  }
+
+  // If no protocol at all, default to wss://
+  if (!url.startsWith("wss://") && !url.startsWith("ws://")) {
+    url = "wss://" + url;
+  }
+
+  // Remove trailing slashes for consistency
+  url = url.replace(/\/+$/, "");
+
+  return url;
+}
+
+/**
+ * Validate a control-plane URL after normalization.
+ * Returns an error message or undefined if valid.
+ */
+export function validateControlPlaneUrl(value: string): string | undefined {
+  if (!value) return "Control plane server is required";
+  const normalized = normalizeControlPlaneUrl(value);
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "wss:" && parsed.protocol !== "ws:") {
+      return "Invalid protocol — expected ws:// or wss://";
+    }
+    if (!parsed.hostname) {
+      return "A hostname is required";
+    }
+  } catch {
+    return "Invalid URL format";
+  }
+  return undefined;
+}

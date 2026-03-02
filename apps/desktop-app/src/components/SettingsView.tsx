@@ -16,7 +16,11 @@ import {
   Terminal,
   Globe,
   Key,
+  Info,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
+import { normalizeControlPlaneUrl, validateControlPlaneUrl } from '../utils'
 
 interface SetupConfig {
   workspace_path: string
@@ -42,6 +46,8 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   const [logs, setLogs] = useState<string[]>([])
   const [dirty, setDirty] = useState(false)
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
+  const [showToken, setShowToken] = useState(false)
+  const [showTokenHelp, setShowTokenHelp] = useState(false)
 
   // Track if config changed from saved version
   const [savedConfig, setSavedConfig] = useState<SetupConfig>(config)
@@ -102,14 +108,8 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       newErrors.workspace_path = 'Workspace path is required'
     }
 
-    if (!config.control_plane_url) {
-      newErrors.control_plane_url = 'Control Plane URL is required'
-    } else if (
-      !config.control_plane_url.startsWith('wss://') &&
-      !config.control_plane_url.startsWith('ws://')
-    ) {
-      newErrors.control_plane_url = 'URL must start with ws:// or wss://'
-    }
+    const urlError = validateControlPlaneUrl(config.control_plane_url)
+    if (urlError) newErrors.control_plane_url = urlError
 
     if (!config.auth_token) {
       newErrors.auth_token = 'Auth token is required'
@@ -145,6 +145,14 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   }
 
   const handleSave = async () => {
+    // Normalize URL before validation
+    if (config.control_plane_url) {
+      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
+      if (normalized !== config.control_plane_url) {
+        setConfig((prev) => ({ ...prev, control_plane_url: normalized }))
+      }
+    }
+
     if (!validate()) return
 
     setSaveStatus('saving')
@@ -163,6 +171,14 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   }
 
   const handleStartAgent = async () => {
+    // Normalize URL before starting
+    if (config.control_plane_url) {
+      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
+      if (normalized !== config.control_plane_url) {
+        setConfig((prev) => ({ ...prev, control_plane_url: normalized }))
+      }
+    }
+
     if (!validate()) return
 
     // Save config first if dirty
@@ -310,14 +326,15 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
         </h3>
 
         <div className="settings-form-group">
-          <label>Control Plane URL</label>
+          <label>Control Plane Server</label>
           <input
             type="text"
             value={config.control_plane_url}
             onChange={(e) => updateConfig({ control_plane_url: e.target.value })}
-            placeholder="wss://codemantle.cloud/ws"
+            placeholder="codemantle.cloud/ws"
             className={errors.control_plane_url ? 'error' : ''}
           />
+          <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol is added automatically.</span>
           {errors.control_plane_url && (
             <span className="field-error">{errors.control_plane_url}</span>
           )}
@@ -328,14 +345,60 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
             <Key size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
             Agent Auth Token
           </label>
-          <input
-            type="password"
-            value={config.auth_token}
-            onChange={(e) => updateConfig({ auth_token: e.target.value })}
-            placeholder="Enter your auth token"
-            className={errors.auth_token ? 'error' : ''}
-          />
+          <div className="input-with-action">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={config.auth_token}
+              onChange={(e) => updateConfig({ auth_token: e.target.value })}
+              placeholder="Enter your VALID_TOKENS value"
+              className={errors.auth_token ? 'error' : ''}
+            />
+            <button
+              type="button"
+              className="input-action-btn"
+              onClick={() => setShowToken(!showToken)}
+              title={showToken ? 'Hide token' : 'Show token'}
+            >
+              {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           {errors.auth_token && <span className="field-error">{errors.auth_token}</span>}
+
+          <button
+            type="button"
+            className="token-help-toggle"
+            onClick={() => setShowTokenHelp(!showTokenHelp)}
+          >
+            <Info size={14} />
+            {showTokenHelp ? 'Hide instructions' : 'Where do I find this token?'}
+          </button>
+
+          {showTokenHelp && (
+            <div className="token-help-box">
+              <h4>How to retrieve your Auth Token</h4>
+              <p>
+                This token must match a value in the <code>VALID_TOKENS</code> environment
+                variable on your control-plane server.
+              </p>
+              <ol>
+                <li>
+                  <strong>Check your control-plane <code>.env</code> file</strong> for the
+                  <code> VALID_TOKENS</code> variable.
+                </li>
+                <li>
+                  <strong>If you ran <code>bootstrap init</code></strong>, a token was
+                  auto-generated. Look for <code>VALID_TOKENS=...</code> in the output.
+                </li>
+                <li>
+                  <strong>To generate a new token</strong>, create a random string (32+ chars)
+                  and add it to <code>VALID_TOKENS</code> on the server, then restart.
+                </li>
+              </ol>
+              <p className="token-help-note">
+                After editing, save changes and restart the agent for the new token to take effect.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
