@@ -285,7 +285,7 @@ async function resolveEnvValues(options: BootstrapOptions): Promise<Record<strin
       }
       process.stdout.write("\n");
       process.stdout.write("  Account: " + accountName + "\n");
-      process.stdout.write("  Type: TOTP | Digits: 6 | Period: 30s\n");
+      process.stdout.write("  Type: " + (mfaProvider === "authy" ? "Authy" : "TOTP") + " | Digits: 6 | Period: 30s\n");
       process.stdout.write("\n");
       process.stdout.write("Save this secret in a secure location. You will need it to log in.\n");
       process.stdout.write("===============================\n");
