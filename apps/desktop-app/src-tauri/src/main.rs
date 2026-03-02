@@ -20,6 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
     is_connected: Arc<AtomicBool>,
+    agent_alive: Arc<AtomicBool>,
     first_connection_registered: Arc<AtomicBool>,
 }
 
@@ -44,7 +45,33 @@ async fn select_folder(app: AppHandle) -> Result<Option<String>, String> {
         .file()
         .blocking_pick_folder();
     
+    if let Some(ref p) = folder_path {
+        let path_str = p.to_string();
+        if is_filesystem_root(&path_str) {
+            return Err("Cannot use a drive root as workspace. Please select a subfolder.".to_string());
+        }
+    }
+
     Ok(folder_path.map(|p| p.to_string()))
+}
+
+/// Returns true if the path is a filesystem root (e.g. "C:\", "E:\", "/").
+fn is_filesystem_root(path: &str) -> bool {
+    let trimmed = path.trim();
+    // Unix root
+    if trimmed == "/" {
+        return true;
+    }
+    // Windows drive root: "C:", "C:\", "C:/"
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && bytes[2..].iter().all(|&b| b == b'\\' || b == b'/')
+    {
+        return true;
+    }
+    false
 }
 
 #[tauri::command]
@@ -96,6 +123,11 @@ async fn start_agent_daemon(
     if agent_process.is_some() {
         return Err("Agent daemon is already running".to_string());
     }
+
+    // Validate workspace path
+    if is_filesystem_root(&config.workspace_path) {
+        return Err("Cannot use a drive root as workspace. Please select a subfolder.".to_string());
+    }
     
     // Determine sidecar binary based on platform
     let binary_name = get_sidecar_binary_name();
@@ -134,6 +166,9 @@ RUNTIME_MODE=ui-box
     
     let pid = child.id().unwrap_or(0);
     *agent_process = Some(child);
+
+    // Mark agent as alive
+    state.agent_alive.store(true, Ordering::SeqCst);
     
     // Spawn log readers
     let app_clone = app.clone();
@@ -157,17 +192,68 @@ RUNTIME_MODE=ui-box
             }
         });
     }
+
+    // Drop the lock so the exit-monitor task can acquire it
+    drop(agent_process);
     
-    // Monitor connection status
+    // Spawn process exit monitor — detects crashes and emits agent-exit
+    let agent_proc_arc = state.agent_process.clone();
+    let agent_alive = state.agent_alive.clone();
     let is_connected = state.is_connected.clone();
+    let app_clone = app.clone();
+    async_runtime::spawn(async move {
+        // Poll until the process exits
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            let mut guard = agent_proc_arc.lock().await;
+            if let Some(ref mut child) = *guard {
+                match child.try_wait() {
+                    Ok(Some(exit_status)) => {
+                        // Process has exited
+                        let code = exit_status.code().unwrap_or(-1);
+                        agent_alive.store(false, Ordering::SeqCst);
+                        is_connected.store(false, Ordering::SeqCst);
+                        *guard = None;
+                        app_clone.emit("agent-exit", code).ok();
+                        app_clone.emit("agent-log", format!("[system] Agent process exited with code {}", code)).ok();
+                        break;
+                    }
+                    Ok(None) => {
+                        // Still running
+                    }
+                    Err(e) => {
+                        agent_alive.store(false, Ordering::SeqCst);
+                        is_connected.store(false, Ordering::SeqCst);
+                        *guard = None;
+                        app_clone.emit("agent-exit", -1).ok();
+                        app_clone.emit("agent-log", format!("[system] Error checking agent status: {}", e)).ok();
+                        break;
+                    }
+                }
+            } else {
+                // Process was already cleaned up (e.g. by stop_agent_daemon)
+                break;
+            }
+        }
+    });
+
+    // Connection check — wait then verify the process is still alive
+    let agent_alive_check = state.agent_alive.clone();
+    let is_connected_check = state.is_connected.clone();
     let first_registered = state.first_connection_registered.clone();
     let app_clone = app.clone();
     
     async_runtime::spawn(async move {
-        // Simulate connection check - in real implementation, this would check WebSocket status
+        // Wait for the agent to start up and connect
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         
-        is_connected.store(true, Ordering::SeqCst);
+        // Only report success if the process is still alive
+        if !agent_alive_check.load(Ordering::SeqCst) {
+            // Process already exited — the exit-monitor task will have emitted agent-exit
+            return;
+        }
+
+        is_connected_check.store(true, Ordering::SeqCst);
         
         // Register on first successful connection if not already done
         if !first_registered.load(Ordering::SeqCst) {
@@ -203,6 +289,7 @@ async fn stop_agent_daemon(
     
     if let Some(mut child) = agent_process.take() {
         let _ = child.kill().await;
+        state.agent_alive.store(false, Ordering::SeqCst);
         state.is_connected.store(false, Ordering::SeqCst);
         Ok(())
     } else {
@@ -387,6 +474,7 @@ fn main() {
     let builder = builder.manage(AppState {
         agent_process: Arc::new(Mutex::new(None)),
         is_connected: Arc::new(AtomicBool::new(false)),
+        agent_alive: Arc::new(AtomicBool::new(false)),
         first_connection_registered: Arc::new(AtomicBool::new(false)),
     });
 

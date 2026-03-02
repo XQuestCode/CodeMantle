@@ -21,6 +21,7 @@ const PreflightStep = React.memo<StepProps>(({
   const { logs, addLog, clearLogs } = useLogs({ maxSize: 500 })
   const unlistenRef = useRef<(() => void) | null>(null)
   const unlistenStatusRef = useRef<(() => void) | null>(null)
+  const unlistenExitRef = useRef<(() => void) | null>(null)
 
   // Setup event listeners
   useEffect(() => {
@@ -38,6 +39,13 @@ const PreflightStep = React.memo<StepProps>(({
         }
       })
       unlistenStatusRef.current = unlistenStatus
+
+      // Listen for agent exit (crash / unexpected termination)
+      const unlistenExit = await listen<number>('agent-exit', (event) => {
+        setStatus('error')
+        addLog(`Agent process exited with code ${event.payload}`)
+      })
+      unlistenExitRef.current = unlistenExit
     }
 
     setupListeners()
@@ -45,6 +53,7 @@ const PreflightStep = React.memo<StepProps>(({
     return () => {
       unlistenRef.current?.()
       unlistenStatusRef.current?.()
+      unlistenExitRef.current?.()
     }
   }, [addLog])
 

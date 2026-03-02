@@ -60,6 +60,19 @@ export function normalizeControlPlaneUrl(input: string): string {
  * Validate a control-plane URL after normalization.
  * Returns an error message or undefined if valid.
  */
+/**
+ * Returns true if the given path is a filesystem root (e.g. "C:\", "E:\", "/").
+ * Used on the frontend as an early guard before invoking Rust commands.
+ */
+export function isFilesystemRoot(path: string): boolean {
+  const trimmed = path.trim();
+  // Unix root
+  if (trimmed === "/") return true;
+  // Windows drive root: "C:", "C:\", "C:/"
+  if (/^[a-zA-Z]:[/\\]*$/.test(trimmed)) return true;
+  return false;
+}
+
 export function validateControlPlaneUrl(value: string): string | undefined {
   if (!value) return "Control plane server is required";
   const normalized = normalizeControlPlaneUrl(value);

@@ -20,7 +20,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { normalizeControlPlaneUrl, validateControlPlaneUrl } from '../utils'
+import { normalizeControlPlaneUrl, validateControlPlaneUrl, isFilesystemRoot } from '../utils'
 
 interface SetupConfig {
   workspace_path: string
@@ -78,10 +78,17 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       setAgentStatus('running')
     })
 
+    // Listen for agent exit (crash / unexpected termination)
+    const unlistenExit = listen<number>('agent-exit', () => {
+      setAgentStatus('stopped')
+      setLogs((prev) => [...prev.slice(-500), '[system] Agent process has stopped'])
+    })
+
     return () => {
       unlistenLog.then((f) => f())
       unlistenStatus.then((f) => f())
       unlistenStarted.then((f) => f())
+      unlistenExit.then((f) => f())
     }
   }, [])
 
@@ -106,6 +113,8 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
 
     if (!config.workspace_path) {
       newErrors.workspace_path = 'Workspace path is required'
+    } else if (isFilesystemRoot(config.workspace_path)) {
+      newErrors.workspace_path = 'Cannot use a drive root as workspace. Please select a subfolder.'
     }
 
     const urlError = validateControlPlaneUrl(config.control_plane_url)
@@ -124,9 +133,14 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       const folder = await invoke<string | null>('select_folder')
       if (folder) {
         updateConfig({ workspace_path: folder })
+        setErrors((prev) => {
+          const next = { ...prev }
+          delete next.workspace_path
+          return next
+        })
       }
     } catch (err) {
-      console.error('Failed to select folder:', err)
+      setErrors((prev) => ({ ...prev, workspace_path: String(err) }))
     }
   }
 

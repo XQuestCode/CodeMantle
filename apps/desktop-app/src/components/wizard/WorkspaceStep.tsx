@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 import { StepProps } from '../../types'
+import { isFilesystemRoot } from '../../utils'
 
 const WorkspaceStep = React.memo<StepProps>(({
   config,
@@ -36,10 +37,14 @@ const WorkspaceStep = React.memo<StepProps>(({
   , [config.workspace_path, isLoading, isSelecting])
 
   const handleNext = useCallback(() => {
+    if (config.workspace_path && isFilesystemRoot(config.workspace_path)) {
+      setError('Cannot use a drive root as workspace. Please select a subfolder.')
+      return
+    }
     if (canProceed) {
       onNext()
     }
-  }, [canProceed, onNext])
+  }, [canProceed, onNext, config.workspace_path])
 
   return (
     <motion.div

@@ -6,7 +6,7 @@ import './App.css'
 import { useAutoUpdater } from './updater'
 import Logo from './components/ui/Logo'
 import SettingsView from './components/SettingsView'
-import { normalizeControlPlaneUrl, validateControlPlaneUrl } from './utils'
+import { normalizeControlPlaneUrl, validateControlPlaneUrl, isFilesystemRoot } from './utils'
 
 interface SetupConfig {
   workspace_path: string
@@ -41,6 +41,14 @@ function WorkspaceStep({ config, setConfig, onNext, isLoading }: StepProps) {
     }
   }
 
+  const handleNext = () => {
+    if (config.workspace_path && isFilesystemRoot(config.workspace_path)) {
+      setError('Cannot use a drive root as workspace. Please select a subfolder.')
+      return
+    }
+    onNext()
+  }
+
   return (
     <div className="step-container">
       <div className="step-header">
@@ -68,7 +76,7 @@ function WorkspaceStep({ config, setConfig, onNext, isLoading }: StepProps) {
       <div className="step-actions">
         <button 
           className="btn-primary" 
-          onClick={onNext}
+          onClick={handleNext}
           disabled={!config.workspace_path || isLoading}
         >
           {isLoading ? <Loader2 className="spin" size={20} /> : <ArrowRight size={20} />}
@@ -229,9 +237,16 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
       }
     })
 
+    // Listen for agent exit (crash / unexpected termination)
+    const unlistenExit = listen<number>('agent-exit', (event) => {
+      setStatus('error')
+      setLogs(prev => [...prev, `Agent process exited with code ${event.payload}`])
+    })
+
     return () => {
       unlisten.then(f => f())
       unlistenStatus.then(f => f())
+      unlistenExit.then(f => f())
     }
   }, [])
 
