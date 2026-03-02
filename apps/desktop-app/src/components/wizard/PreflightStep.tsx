@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckCircle, ArrowRight, ArrowLeft, Monitor, Terminal, Loader2, AlertCircle } from 'lucide-react'
+import { CheckCircle, ArrowRight, ArrowLeft, Monitor, Terminal, Loader2, AlertCircle, Square } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -36,6 +36,9 @@ const PreflightStep = React.memo<StepProps>(({
       const unlistenStatus = await listen<{connected: boolean; first_time: boolean}>('connection-status', (event) => {
         if (event.payload.connected) {
           setStatus('ready')
+        } else {
+          setStatus('error')
+          addLog('Connection failed: agent could not establish WebSocket handshake within 15 seconds.')
         }
       })
       unlistenStatusRef.current = unlistenStatus
@@ -68,6 +71,16 @@ const PreflightStep = React.memo<StepProps>(({
       addLog(`Error: ${err}`)
     }
   }, [config, clearLogs, addLog])
+
+  const handleStopAgent = useCallback(async () => {
+    try {
+      await invoke('stop_agent_daemon')
+      setStatus('idle')
+      addLog('Agent stopped.')
+    } catch (err) {
+      addLog(`Error stopping agent: ${err}`)
+    }
+  }, [addLog])
 
   const handleToggleAutostart = useCallback(async (enabled: boolean) => {
     setAutostartEnabled(enabled)
@@ -198,6 +211,15 @@ const PreflightStep = React.memo<StepProps>(({
             >
               {statusConfig.icon}
               <span>{statusConfig.text}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleStopAgent}
+                leftIcon={<Square size={14} />}
+                style={{ marginLeft: 'auto' }}
+              >
+                Stop
+              </Button>
             </motion.div>
           )}
 
@@ -211,6 +233,15 @@ const PreflightStep = React.memo<StepProps>(({
             >
               {statusConfig.icon}
               <span>{statusConfig.text}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleStopAgent}
+                leftIcon={<Square size={14} />}
+                style={{ marginLeft: 'auto' }}
+              >
+                Stop
+              </Button>
             </motion.div>
           )}
 

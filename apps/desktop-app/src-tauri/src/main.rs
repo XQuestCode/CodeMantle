@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::Write;
-use tauri::{Manager, Emitter, Runtime, State, AppHandle};
+use tauri::{Manager, Emitter, Runtime, State, AppHandle, WindowEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::async_runtime::{self, Mutex};
@@ -21,6 +21,10 @@ struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
     is_connected: Arc<AtomicBool>,
     agent_alive: Arc<AtomicBool>,
+    /// Set to true when the agent logs "handshake complete" (real WS connection).
+    ws_connected: Arc<AtomicBool>,
+    /// Set to true when the agent detects another daemon is already running.
+    existing_daemon: Arc<AtomicBool>,
     first_connection_registered: Arc<AtomicBool>,
 }
 
@@ -118,6 +122,14 @@ async fn start_agent_daemon(
     state: State<'_, AppState>,
     config: SetupConfig,
 ) -> Result<(), String> {
+    start_agent_daemon_inner(app, &state, config).await
+}
+
+async fn start_agent_daemon_inner(
+    app: AppHandle,
+    state: &AppState,
+    config: SetupConfig,
+) -> Result<(), String> {
     let mut agent_process = state.agent_process.lock().await;
     
     if agent_process.is_some() {
@@ -167,16 +179,28 @@ RUNTIME_MODE=ui-box
     let pid = child.id().unwrap_or(0);
     *agent_process = Some(child);
 
-    // Mark agent as alive
+    // Mark agent as alive, reset ws_connected and existing_daemon flags
     state.agent_alive.store(true, Ordering::SeqCst);
+    state.ws_connected.store(false, Ordering::SeqCst);
+    state.existing_daemon.store(false, Ordering::SeqCst);
     
-    // Spawn log readers
+    // Spawn stdout reader — parses for "handshake complete" and "another daemon" detection
     let app_clone = app.clone();
+    let ws_connected_stdout = state.ws_connected.clone();
+    let existing_daemon_stdout = state.existing_daemon.clone();
     if let Some(stdout) = agent_process.as_mut().unwrap().stdout.take() {
         let reader = BufReader::new(stdout);
         async_runtime::spawn(async move {
             let mut lines = reader.lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                // Detect successful WebSocket handshake from agent logs
+                if line.contains("handshake complete") {
+                    ws_connected_stdout.store(true, Ordering::SeqCst);
+                }
+                // Detect "another daemon is already running" — existing daemon is handling things
+                if line.contains("another daemon is already running") {
+                    existing_daemon_stdout.store(true, Ordering::SeqCst);
+                }
                 app_clone.emit("agent-log", format!("[stdout] {}", line)).ok();
             }
         });
@@ -199,7 +223,10 @@ RUNTIME_MODE=ui-box
     // Spawn process exit monitor — detects crashes and emits agent-exit
     let agent_proc_arc = state.agent_process.clone();
     let agent_alive = state.agent_alive.clone();
+    let ws_connected_exit = state.ws_connected.clone();
     let is_connected = state.is_connected.clone();
+    let existing_daemon_exit = state.existing_daemon.clone();
+    let first_registered_exit = state.first_connection_registered.clone();
     let app_clone = app.clone();
     async_runtime::spawn(async move {
         // Poll until the process exits
@@ -211,9 +238,35 @@ RUNTIME_MODE=ui-box
                     Ok(Some(exit_status)) => {
                         // Process has exited
                         let code = exit_status.code().unwrap_or(-1);
-                        agent_alive.store(false, Ordering::SeqCst);
-                        is_connected.store(false, Ordering::SeqCst);
                         *guard = None;
+
+                        // Special case: another daemon is already running and process
+                        // exited cleanly (code 0). The existing daemon is already
+                        // connected, so treat this as a successful connection.
+                        if code == 0 && existing_daemon_exit.load(Ordering::SeqCst) {
+                            agent_alive.store(false, Ordering::SeqCst);
+                            // Keep is_connected true — the existing daemon handles it
+                            is_connected.store(true, Ordering::SeqCst);
+                            ws_connected_exit.store(true, Ordering::SeqCst);
+
+                            if !first_registered_exit.load(Ordering::SeqCst) {
+                                first_registered_exit.store(true, Ordering::SeqCst);
+                            }
+
+                            app_clone.emit("agent-log", format!(
+                                "[system] Another agent daemon is already running (exit code {}). Using existing connection.",
+                                code
+                            )).ok();
+                            app_clone.emit("connection-status", ConnectionStatus {
+                                connected: true,
+                                first_time: false,
+                            }).ok();
+                            break;
+                        }
+
+                        agent_alive.store(false, Ordering::SeqCst);
+                        ws_connected_exit.store(false, Ordering::SeqCst);
+                        is_connected.store(false, Ordering::SeqCst);
                         app_clone.emit("agent-exit", code).ok();
                         app_clone.emit("agent-log", format!("[system] Agent process exited with code {}", code)).ok();
                         break;
@@ -223,6 +276,7 @@ RUNTIME_MODE=ui-box
                     }
                     Err(e) => {
                         agent_alive.store(false, Ordering::SeqCst);
+                        ws_connected_exit.store(false, Ordering::SeqCst);
                         is_connected.store(false, Ordering::SeqCst);
                         *guard = None;
                         app_clone.emit("agent-exit", -1).ok();
@@ -237,19 +291,38 @@ RUNTIME_MODE=ui-box
         }
     });
 
-    // Connection check — wait then verify the process is still alive
+    // Connection check — poll for real WS handshake with 15s timeout
     let agent_alive_check = state.agent_alive.clone();
+    let ws_connected_check = state.ws_connected.clone();
     let is_connected_check = state.is_connected.clone();
     let first_registered = state.first_connection_registered.clone();
     let app_clone = app.clone();
     
     async_runtime::spawn(async move {
-        // Wait for the agent to start up and connect
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        
-        // Only report success if the process is still alive
-        if !agent_alive_check.load(Ordering::SeqCst) {
-            // Process already exited — the exit-monitor task will have emitted agent-exit
+        // Poll every 500ms for up to 15 seconds for the handshake to complete
+        let max_polls = 30; // 30 * 500ms = 15s
+        let mut connected = false;
+        for _ in 0..max_polls {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+            // Process died — exit-monitor will handle it
+            if !agent_alive_check.load(Ordering::SeqCst) {
+                return;
+            }
+
+            // Agent logged "handshake complete" — real connection
+            if ws_connected_check.load(Ordering::SeqCst) {
+                connected = true;
+                break;
+            }
+        }
+
+        if !connected {
+            // Timed out waiting for handshake — report failure
+            app_clone.emit("connection-status", ConnectionStatus {
+                connected: false,
+                first_time: false,
+            }).ok();
             return;
         }
 
@@ -285,11 +358,18 @@ RUNTIME_MODE=ui-box
 async fn stop_agent_daemon(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    stop_agent_daemon_inner(&state).await
+}
+
+async fn stop_agent_daemon_inner(
+    state: &AppState,
+) -> Result<(), String> {
     let mut agent_process = state.agent_process.lock().await;
     
     if let Some(mut child) = agent_process.take() {
         let _ = child.kill().await;
         state.agent_alive.store(false, Ordering::SeqCst);
+        state.ws_connected.store(false, Ordering::SeqCst);
         state.is_connected.store(false, Ordering::SeqCst);
         Ok(())
     } else {
@@ -358,14 +438,26 @@ async fn load_config_from_disk(app: &AppHandle) -> Result<Option<SetupConfig>, S
     }
 }
 
-fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std::error::Error>> {
+fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::error::Error>> {
     let show_item = MenuItem::with_id(app, "show", "Show CodeMantle", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+    let separator1 = PredefinedMenuItem::separator(app)?;
+    let start_agent_item = MenuItem::with_id(app, "start-agent", "Start Agent", true, None::<&str>)?;
+    let stop_agent_item = MenuItem::with_id(app, "stop-agent", "Stop Agent", true, None::<&str>)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
     let hide_item = MenuItem::with_id(app, "hide", "Hide to Tray", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     
-    let menu = Menu::with_items(app, &[&show_item, &settings_item, &hide_item, &separator, &quit_item])?;
+    let menu = Menu::with_items(app, &[
+        &show_item,
+        &settings_item,
+        &separator1,
+        &start_agent_item,
+        &stop_agent_item,
+        &separator2,
+        &hide_item,
+        &quit_item,
+    ])?;
     
     let mut builder = TrayIconBuilder::new()
         .menu(&menu)
@@ -394,13 +486,52 @@ fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> Result<TrayIcon<R>, Box<dyn std
                         let _ = window.emit("open-settings", true);
                     }
                 }
+                "start-agent" => {
+                    let app_handle = app.clone();
+                    async_runtime::spawn(async move {
+                        // Load saved config and start the agent
+                        if let Ok(Some(config)) = load_config_from_disk(&app_handle).await {
+                            let state = app_handle.state::<AppState>();
+                            match start_agent_daemon_inner(app_handle.clone(), &state, config).await {
+                                Ok(()) => {
+                                    app_handle.emit("agent-log", "[system] Agent started from tray".to_string()).ok();
+                                }
+                                Err(e) => {
+                                    app_handle.emit("agent-log", format!("[system] Failed to start agent: {}", e)).ok();
+                                }
+                            }
+                        } else {
+                            app_handle.emit("agent-log", "[system] No saved config found. Please configure in Settings first.".to_string()).ok();
+                        }
+                    });
+                }
+                "stop-agent" => {
+                    let app_handle = app.clone();
+                    async_runtime::spawn(async move {
+                        let state = app_handle.state::<AppState>();
+                        match stop_agent_daemon_inner(&state).await {
+                            Ok(()) => {
+                                app_handle.emit("agent-log", "[system] Agent stopped from tray".to_string()).ok();
+                            }
+                            Err(e) => {
+                                app_handle.emit("agent-log", format!("[system] Failed to stop agent: {}", e)).ok();
+                            }
+                        }
+                    });
+                }
                 "hide" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
                 }
                 "quit" => {
-                    app.exit(0);
+                    // Stop agent before quitting
+                    let app_handle = app.clone();
+                    async_runtime::spawn(async move {
+                        let state = app_handle.state::<AppState>();
+                        let _ = stop_agent_daemon_inner(&state).await;
+                        app_handle.exit(0);
+                    });
                 }
                 _ => {}
             }
@@ -475,6 +606,8 @@ fn main() {
         agent_process: Arc::new(Mutex::new(None)),
         is_connected: Arc::new(AtomicBool::new(false)),
         agent_alive: Arc::new(AtomicBool::new(false)),
+        ws_connected: Arc::new(AtomicBool::new(false)),
+        existing_daemon: Arc::new(AtomicBool::new(false)),
         first_connection_registered: Arc::new(AtomicBool::new(false)),
     });
 
@@ -513,6 +646,16 @@ fn main() {
 
         log_step("setup() completed");
         Ok(())
+    });
+
+    // Intercept window close — hide to tray instead of quitting
+    log_step("adding window event handler");
+    let builder = builder.on_window_event(|window, event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            // Prevent the window from actually closing; hide it instead
+            api.prevent_close();
+            let _ = window.hide();
+        }
     });
 
     log_step("adding invoke handler");

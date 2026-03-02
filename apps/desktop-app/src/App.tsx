@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff } from 'lucide-react'
+import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff, Square } from 'lucide-react'
 import './App.css'
 import { useAutoUpdater } from './updater'
 import Logo from './components/ui/Logo'
@@ -234,6 +234,9 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
     const unlistenStatus = listen<{connected: boolean; first_time: boolean}>('connection-status', (event) => {
       if (event.payload.connected) {
         setStatus('ready')
+      } else {
+        setStatus('error')
+        setLogs(prev => [...prev, 'Connection failed: agent could not establish WebSocket handshake within 15 seconds.'])
       }
     })
 
@@ -259,6 +262,16 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
     } catch (err) {
       setStatus('error')
       setLogs(prev => [...prev, `Error: ${err}`])
+    }
+  }
+
+  const handleStopAgent = async () => {
+    try {
+      await invoke('stop_agent_daemon')
+      setStatus('idle')
+      setLogs(prev => [...prev, 'Agent stopped.'])
+    } catch (err) {
+      setLogs(prev => [...prev, `Error stopping agent: ${err}`])
     }
   }
 
@@ -332,6 +345,10 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
           <div className="checking-status">
             <Loader2 className="spin" size={24} />
             <span>Starting agent and testing connection...</span>
+            <button className="btn-ghost btn-sm" onClick={handleStopAgent} style={{ marginLeft: 'auto' }}>
+              <Square size={14} />
+              Stop
+            </button>
           </div>
         )}
 
@@ -339,6 +356,10 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
           <div className="ready-status">
             <CheckCircle size={24} className="success-icon" />
             <span>Agent connected successfully!</span>
+            <button className="btn-ghost btn-sm" onClick={handleStopAgent} style={{ marginLeft: 'auto' }}>
+              <Square size={14} />
+              Stop
+            </button>
           </div>
         )}
 

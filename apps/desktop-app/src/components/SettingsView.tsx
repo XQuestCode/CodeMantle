@@ -70,12 +70,15 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       (event) => {
         if (event.payload.connected) {
           setAgentStatus('running')
+        } else {
+          setAgentStatus('stopped')
+          setLogs((prev) => [...prev.slice(-500), '[system] Connection failed: agent could not establish WebSocket handshake within 15 seconds.'])
         }
       }
     )
 
     const unlistenStarted = listen<number>('agent-started', () => {
-      setAgentStatus('running')
+      setAgentStatus('starting')
     })
 
     // Listen for agent exit (crash / unexpected termination)
