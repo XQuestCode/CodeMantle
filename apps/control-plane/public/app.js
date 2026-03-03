@@ -66,6 +66,7 @@ function initializeElements() {
      'git-status-badge', 'git-branch', 'git-added-count', 'git-modified-count', 'git-untracked-count',
       'git-init', 'git-clone', 'git-config', 'git-add', 'git-commit', 'git-pull', 'git-push', 'git-branch-btn', 'git-checkout', 'git-refresh',
       'verify-token-select', 'copy-verify-token', 'create-verify-token', 'regenerate-verify-token', 'delete-verify-token', 'refresh-verify-tokens',
+      'open-settings', 'close-settings', 'settings-drawer', 'settings-drawer-backdrop',
   ];
   
   ids.forEach(id => {
@@ -84,6 +85,11 @@ function bindEventListeners() {
   
   // Sidebar toggle
   elements['toggle-sidebar']?.addEventListener('click', toggleSidebar);
+  elements['open-settings']?.addEventListener('click', () => {
+    openSettingsDrawer();
+  });
+  elements['close-settings']?.addEventListener('click', closeSettingsDrawer);
+  elements['settings-drawer-backdrop']?.addEventListener('click', closeSettingsDrawer);
   
   // Session controls
   elements['start-session']?.addEventListener('click', handleStartSession);
@@ -154,8 +160,20 @@ function bindEventListeners() {
     if (e.key === 'Escape') {
       hideContextMenu();
       closeModal();
+      closeSettingsDrawer();
     }
   });
+}
+
+function openSettingsDrawer() {
+  elements['settings-drawer']?.classList.add('open');
+  elements['settings-drawer']?.setAttribute('aria-hidden', 'false');
+  void refreshVerifyTokens(false);
+}
+
+function closeSettingsDrawer() {
+  elements['settings-drawer']?.classList.remove('open');
+  elements['settings-drawer']?.setAttribute('aria-hidden', 'true');
 }
 
 // Tool Tab Switching

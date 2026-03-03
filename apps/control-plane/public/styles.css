@@ -326,6 +326,12 @@ body {
   gap: var(--space-6);
 }
 
+.sidebar-settings-btn {
+  width: 100%;
+  margin-top: var(--space-3);
+  justify-content: center;
+}
+
 .stat {
   display: flex;
   flex-direction: column;
@@ -765,6 +771,10 @@ body {
   border-radius: var(--radius-md);
 }
 
+.settings-drawer .verify-token-panel {
+  margin-top: 0;
+}
+
 .verify-token-header {
   display: flex;
   align-items: center;
@@ -799,6 +809,66 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
+}
+
+.settings-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  pointer-events: none;
+}
+
+.settings-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity var(--transition-base);
+}
+
+.settings-drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(420px, 100vw);
+  background: linear-gradient(180deg, #121418 0%, #0f1014 100%);
+  border-left: 1px solid var(--border-hover);
+  transform: translateX(100%);
+  transition: transform var(--transition-base);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.settings-drawer-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-drawer-body {
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.settings-drawer.open {
+  pointer-events: auto;
+}
+
+.settings-drawer.open .settings-drawer-backdrop {
+  opacity: 1;
+}
+
+.settings-drawer.open .settings-drawer-panel {
+  transform: translateX(0);
 }
 
 /* Tools Section */
@@ -1524,6 +1594,10 @@ input[type="text"]::placeholder {
 
   .tool-actions-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-drawer-panel {
+    width: 100vw;
   }
 }
 
