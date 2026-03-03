@@ -123,7 +123,7 @@ const DEVICE_ID = process.env.DEVICE_ID ?? defaultDeviceId();
 const BASE_RECONNECT_MS = parseInt(process.env.RECONNECT_BASE_MS ?? "1000", 10);
 const MAX_RECONNECT_MS = parseInt(process.env.RECONNECT_MAX_MS ?? "30000", 10);
 const MAX_FRAME_BYTES = parseInt(
-  process.env.MAX_FRAME_BYTES ?? String(MAX_STREAM_CHUNK_BYTES + 1024),
+  process.env.MAX_FRAME_BYTES ?? "2097152",
   10,
 );
 const REQUEST_TIMEOUT_MS = parseInt(
@@ -3968,9 +3968,15 @@ function sendError(ws: WebSocket, code: ErrorCode, requestId?: number): void {
 }
 
 function sendJson(ws: WebSocket, payload: object): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(payload));
+  if (ws.readyState !== WebSocket.OPEN) {
+    return;
   }
+  const raw = JSON.stringify(payload);
+  if (raw.length > MAX_FRAME_BYTES) {
+    const msgType = (payload as Record<string, unknown>).t ?? "?";
+    log(`WARN sendJson: message type="${String(msgType)}" size=${raw.length} exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES}, sending anyway`);
+  }
+  ws.send(raw);
 }
 
 function telemetryFingerprint(

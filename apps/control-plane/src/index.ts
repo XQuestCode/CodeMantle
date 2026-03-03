@@ -93,7 +93,7 @@ const REQUIRED_AGENT_PROTOCOL_VERSION = Number.isInteger(REQUIRED_AGENT_PROTOCOL
   : WS_PROTOCOL_VERSION;
 const HEARTBEAT_SECONDS = parseInt(process.env.HEARTBEAT_SECONDS ?? "25", 10);
 const HANDSHAKE_SKEW_MS = parseInt(process.env.HANDSHAKE_SKEW_MS ?? "30000", 10);
-const MAX_FRAME_BYTES = parseInt(process.env.MAX_FRAME_BYTES ?? String(MAX_STREAM_CHUNK_BYTES + 1024), 10);
+const MAX_FRAME_BYTES = parseInt(process.env.MAX_FRAME_BYTES ?? "2097152", 10);
 const MAX_NONCES = parseInt(process.env.MAX_NONCES ?? "2048", 10);
 const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "15000", 10);
 const GIT_REQUEST_TIMEOUT_MS = parseInt(process.env.GIT_REQUEST_TIMEOUT_MS ?? "180000", 10);
@@ -3202,9 +3202,15 @@ function sendUiJson(ws: WebSocket, payload: object): void {
 }
 
 function sendJson(ws: WebSocket, message: object): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(message));
+  if (ws.readyState !== WebSocket.OPEN) {
+    return;
   }
+  const raw = JSON.stringify(message);
+  if (raw.length > MAX_FRAME_BYTES) {
+    const msgType = (message as Record<string, unknown>).t ?? "?";
+    log(`WARN sendJson: message type="${String(msgType)}" size=${raw.length} exceeds MAX_FRAME_BYTES=${MAX_FRAME_BYTES}`);
+  }
+  ws.send(raw);
 }
 
 function decodeJson(raw: RawData): unknown | null {
