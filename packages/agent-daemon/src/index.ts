@@ -883,7 +883,8 @@ async function handlePortProxyRequest(
     return;
   }
 
-  if (!publishedListeningPorts.has(message.p)) {
+  const isManagedPort = opencodeOrchestrator?.isManagedOpenCodePort(message.p) ?? false;
+  if (!publishedListeningPorts.has(message.p) && !isManagedPort) {
     const denied: PortProxyResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "pv",

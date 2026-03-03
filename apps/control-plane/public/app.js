@@ -49,6 +49,12 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchDevices();
   setInterval(fetchDevices, CONFIG.REFRESH_MS);
   updateConnectionStatus('Connecting...', false);
+
+  // On mobile, auto-open sidebar so the device list is visible on first load
+  if (isMobileViewport() && !state.selectedDeviceId) {
+    state.sidebarOpen = true;
+    elements['sidebar']?.classList.add('open');
+  }
 });
 
 function initializeElements() {
@@ -67,6 +73,7 @@ function initializeElements() {
       'git-init', 'git-clone', 'git-config', 'git-add', 'git-commit', 'git-pull', 'git-push', 'git-branch-btn', 'git-checkout', 'git-refresh',
       'verify-token-select', 'copy-verify-token', 'create-verify-token', 'regenerate-verify-token', 'delete-verify-token', 'refresh-verify-tokens',
       'open-settings', 'close-settings', 'settings-drawer', 'settings-drawer-backdrop',
+      'sidebar-backdrop',
   ];
   
   ids.forEach(id => {
@@ -85,6 +92,7 @@ function bindEventListeners() {
   
   // Sidebar toggle
   elements['toggle-sidebar']?.addEventListener('click', toggleSidebar);
+  elements['sidebar-backdrop']?.addEventListener('click', closeMobileSidebar);
   elements['open-settings']?.addEventListener('click', () => {
     openSettingsDrawer();
   });
