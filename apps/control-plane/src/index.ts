@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, rename as fsRename, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { config as loadDotenv } from "dotenv";
 import path from "node:path";
@@ -82,6 +82,7 @@ if (CONTROL_PLANE_ENV_FILE) {
 } else {
   loadDotenv();
 }
+const CONTROL_PLANE_ENV_PATH = path.resolve(CONTROL_PLANE_ENV_FILE && CONTROL_PLANE_ENV_FILE.length > 0 ? CONTROL_PLANE_ENV_FILE : ".env");
 
 const CONTROL_PLANE_HOST = (process.env.CONTROL_PLANE_HOST ?? "127.0.0.1").trim();
 const CONTROL_PLANE_PORT = parseInt(process.env.CONTROL_PLANE_PORT ?? "8787", 10);
@@ -687,6 +688,11 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       return;
     }
 
+    if (method === "GET" && pathname === "/auth/verify-tokens") {
+      sendJsonResponse(response, 200, { o: 1, t: listVerifyTokens() });
+      return;
+    }
+
     if (method === "GET" && pathname === "/config/template/schema") {
       sendJsonResponse(response, 200, { schema: AGENT_TEMPLATE_SCHEMA });
       return;
@@ -804,6 +810,35 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
         return;
       }
 
+      if (pathname === "/auth/verify-tokens/create") {
+        const created = await createVerifyToken();
+        auditLog("verify_token.create", {
+          actor: auth.email,
+          role: auth.role,
+          keyId: created.k,
+          tokenCount: validTokens.size,
+        });
+        sendJsonResponse(response, 200, { o: 1, t: created });
+        return;
+      }
+
+      if (pathname === "/auth/verify-tokens/revoke") {
+        const keyId = readString(body.keyId, "").trim();
+        if (!matches(keyId, /^[A-Za-z0-9_-]{8,32}$/)) {
+          throw new ApiError(400, "invalid_key_id");
+        }
+        const revoked = await revokeVerifyToken(keyId);
+        auditLog("verify_token.revoke", {
+          actor: auth.email,
+          role: auth.role,
+          keyId,
+          revoked,
+          tokenCount: validTokens.size,
+        });
+        sendJsonResponse(response, 200, { o: 1, k: keyId });
+        return;
+      }
+
       const compileMatch = /^\/config\/templates\/([^/]+)\/compile$/.exec(pathname);
       if (compileMatch) {
         const templateId = decodeURIComponent(compileMatch[1]!);
@@ -894,7 +929,8 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
             assignedAt: Date.now(),
           });
         }
-        sendJsonResponse(response, 200, result);
+        const sessionResult = rewriteSessionResultUrl(deviceId, result);
+        sendJsonResponse(response, 200, sessionResult);
         return;
       }
 
@@ -954,7 +990,8 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
         const deviceId = decodeURIComponent(statusMatch[1]!);
         const folderPath = readString(body.path, ".");
         const result = await getSessionStatus(deviceId, folderPath);
-        sendJsonResponse(response, 200, result);
+        const statusResult = rewriteSessionStatusUrl(deviceId, result);
+        sendJsonResponse(response, 200, statusResult);
         return;
       }
 
@@ -1311,6 +1348,15 @@ function requiredRoleForRoute(method: string, pathname: string): AuthRole {
   }
   if (pathname === "/config/template/schema" && method === "GET") {
     return "viewer";
+  }
+  if (pathname === "/auth/verify-tokens") {
+    return "admin";
+  }
+  if (pathname === "/auth/verify-tokens/create") {
+    return "admin";
+  }
+  if (pathname === "/auth/verify-tokens/revoke") {
+    return "admin";
   }
   if (pathname === "/config/mcp" || pathname === "/config/templates" || /^\/config\/templates\/[^/]+\/compile$/.test(pathname)) {
     return method === "GET" ? "viewer" : "admin";
@@ -3199,6 +3245,152 @@ function parseValidTokens(raw: string): Set<string> {
     tokens.add(token);
   }
   return tokens;
+}
+
+type VerifyTokenView = {
+  k: string;
+  p: string;
+  v: string;
+};
+
+function listVerifyTokens(): VerifyTokenView[] {
+  return Array.from(validTokens.values()).map((token) => ({
+    k: deriveAuthKeyId(token),
+    p: toTokenPreview(token),
+    v: token,
+  }));
+}
+
+async function createVerifyToken(): Promise<VerifyTokenView> {
+  const token = randomBytes(32).toString("base64url");
+  const nextTokens = Array.from(validTokens.values());
+  nextTokens.push(token);
+  await setValidTokens(nextTokens);
+  return {
+    k: deriveAuthKeyId(token),
+    p: toTokenPreview(token),
+    v: token,
+  };
+}
+
+async function revokeVerifyToken(keyId: string): Promise<string> {
+  const token = validTokenByKeyId.get(keyId);
+  if (!token) {
+    throw new ApiError(404, "verify_token_not_found");
+  }
+  if (validTokens.size <= 1) {
+    throw new ApiError(400, "cannot_revoke_last_token");
+  }
+
+  const nextTokens = Array.from(validTokens.values()).filter((entry) => entry !== token);
+  await setValidTokens(nextTokens);
+  return keyId;
+}
+
+async function setValidTokens(tokens: string[]): Promise<void> {
+  const normalized = normalizeTokenList(tokens);
+  if (normalized.length === 0) {
+    throw new ApiError(400, "invalid_token_set");
+  }
+
+  const current = Array.from(validTokens.values());
+  try {
+    await persistValidTokensToEnv(normalized);
+    replaceValidTokens(normalized);
+  } catch (error) {
+    replaceValidTokens(current);
+    throw error;
+  }
+}
+
+function replaceValidTokens(tokens: string[]): void {
+  validTokens.clear();
+  validTokenByKeyId.clear();
+  for (const token of tokens) {
+    validTokens.add(token);
+    validTokenByKeyId.set(deriveAuthKeyId(token), token);
+  }
+}
+
+function normalizeTokenList(tokens: string[]): string[] {
+  const deduped = new Set<string>();
+  for (const token of tokens) {
+    const trimmed = token.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed.length < 8 || trimmed.length > 2048) {
+      throw new ApiError(400, "invalid_verify_token");
+    }
+    deduped.add(trimmed);
+  }
+  return Array.from(deduped.values());
+}
+
+function toTokenPreview(token: string): string {
+  if (token.length <= 12) {
+    return token;
+  }
+  return `${token.slice(0, 6)}...${token.slice(-6)}`;
+}
+
+async function persistValidTokensToEnv(tokens: string[]): Promise<void> {
+  const serializedTokens = tokens.join(",");
+  let current = "";
+  try {
+    current = await readFile(CONTROL_PLANE_ENV_PATH, "utf8");
+  } catch {
+    current = "";
+  }
+
+  const normalized = current.replace(/\r\n/g, "\n");
+  const tokenLine = `VALID_TOKENS=${serializedTokens}`;
+  const tokenRegex = /^\s*VALID_TOKENS\s*=.*$/m;
+  const next = tokenRegex.test(normalized)
+    ? normalized.replace(tokenRegex, tokenLine)
+    : `${normalized}${normalized.endsWith("\n") || normalized.length === 0 ? "" : "\n"}${tokenLine}\n`;
+
+  const tempPath = `${CONTROL_PLANE_ENV_PATH}.tmp-${randomBytes(6).toString("hex")}`;
+  await writeFile(tempPath, next, "utf8");
+  await fsRename(tempPath, CONTROL_PLANE_ENV_PATH);
+}
+
+function rewriteSessionResultUrl(deviceId: string, result: SessionResultMessage): SessionResultMessage {
+  if (!result.u) {
+    return result;
+  }
+  const proxied = toProxySessionUrl(deviceId, result.u);
+  return {
+    ...result,
+    u: proxied,
+  };
+}
+
+function rewriteSessionStatusUrl(deviceId: string, result: SessionStatusResponseMessage): SessionStatusResponseMessage {
+  if (!result.u) {
+    return result;
+  }
+  const proxied = toProxySessionUrl(deviceId, result.u);
+  return {
+    ...result,
+    u: proxied,
+  };
+}
+
+function toProxySessionUrl(deviceId: string, rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+      return rawUrl;
+    }
+    const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+    const pathName = parsed.pathname || "/";
+    const suffix = `${pathName}${parsed.search}${parsed.hash}`;
+    return `/device/${encodeURIComponent(deviceId)}/port/${encodeURIComponent(port)}${suffix}`;
+  } catch {
+    return rawUrl;
+  }
 }
 
 function parseGatewayBaseUrls(raw: string): Map<string, string> {

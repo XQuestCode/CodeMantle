@@ -348,10 +348,10 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
             type="text"
             value={config.control_plane_url}
             onChange={(e) => updateConfig({ control_plane_url: e.target.value })}
-            placeholder="codemantle.cloud/ws"
+            placeholder="codemantle.cloud"
             className={errors.control_plane_url ? 'error' : ''}
           />
-          <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol is added automatically.</span>
+          <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol and /ws path are added automatically.</span>
           {errors.control_plane_url && (
             <span className="field-error">{errors.control_plane_url}</span>
           )}

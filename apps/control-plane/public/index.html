@@ -177,6 +177,28 @@
                       Stop
                     </button>
                   </div>
+
+                  <div class="verify-token-panel">
+                    <div class="verify-token-header">
+                      <span class="verify-token-title">Connection Secret</span>
+                      <button id="refresh-verify-tokens" class="icon-btn" title="Refresh tokens">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="23 4 23 10 17 10"/>
+                          <polyline points="1 20 1 14 7 14"/>
+                          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <div class="verify-token-row">
+                      <select id="verify-token-select" class="verify-token-select"></select>
+                    </div>
+                    <div class="verify-token-actions">
+                      <button id="copy-verify-token" class="btn btn-secondary">Copy Verify Token</button>
+                      <button id="create-verify-token" class="btn btn-secondary">New Token</button>
+                      <button id="regenerate-verify-token" class="btn btn-secondary">Regenerate</button>
+                      <button id="delete-verify-token" class="btn btn-danger">Expire</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

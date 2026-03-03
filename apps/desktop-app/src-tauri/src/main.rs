@@ -86,6 +86,7 @@ async fn save_setup_config(
 ) -> Result<(), String> {
     // Save config to app data directory
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    tokio::fs::create_dir_all(&app_data).await.map_err(|e| e.to_string())?;
     let config_path = app_data.join("config.json");
     
     let config_json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
@@ -165,14 +166,24 @@ RUNTIME_MODE=ui-box
     tokio::fs::write(&env_path, env_content).await.map_err(|e| e.to_string())?;
     
     // Start the agent process
-    let child = Command::new(&sidecar_path)
+    let mut command = Command::new(&sidecar_path);
+    command
         .current_dir(&config.workspace_path)
         .env("CONTROL_PLANE_URL", &config.control_plane_url)
         .env("AGENT_AUTH_TOKEN", &config.auth_token)
         .env("AGENT_PROJECT_ROOT", &config.workspace_path)
         .env("RUNTIME_MODE", "ui-box")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = command
         .spawn()
         .map_err(|e| format!("Failed to start agent: {}", e))?;
     
@@ -391,9 +402,24 @@ async fn toggle_autostart(
     let autostart_manager = app.autolaunch();
     
     if enabled {
-        autostart_manager.enable().map_err(|e| e.to_string())?;
+        autostart_manager.enable().map_err(|e| {
+            format!("Failed to enable launch on startup: {}. On some systems this may require running the app as administrator.", e)
+        })?;
     } else {
-        autostart_manager.disable().map_err(|e| e.to_string())?;
+        autostart_manager.disable().map_err(|e| {
+            format!("Failed to disable launch on startup: {}. On some systems this may require running the app as administrator.", e)
+        })?;
+    }
+    
+    // Verify the change actually took effect
+    let actual = autostart_manager.is_enabled().unwrap_or(false);
+    if actual != enabled {
+        return Err(format!(
+            "Autostart toggle did not take effect (expected {}, got {}). \
+             This can happen if another program or group policy is preventing changes to startup entries. \
+             Try running CodeMantle as administrator.",
+            enabled, actual
+        ));
     }
     
     Ok(())
@@ -637,11 +663,42 @@ fn main() {
 
         // Check if launched with --minimized flag (from autostart)
         let args: Vec<String> = std::env::args().collect();
-        if args.contains(&"--minimized".to_string()) {
+        let is_minimized = args.contains(&"--minimized".to_string());
+        if is_minimized {
             log_step("minimized flag detected, hiding window");
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.hide();
             }
+        }
+
+        // Auto-start agent on boot when launched with --minimized
+        // (i.e. the OS autostart mechanism triggered the launch)
+        if is_minimized {
+            log_step("auto-starting agent daemon (launched via autostart)");
+            let app_handle = app.handle().clone();
+            async_runtime::spawn(async move {
+                match load_config_from_disk(&app_handle).await {
+                    Ok(Some(config)) => {
+                        let state = app_handle.state::<AppState>();
+                        match start_agent_daemon_inner(app_handle.clone(), &state, config).await {
+                            Ok(()) => {
+                                log_step("auto-start: agent daemon started successfully");
+                                app_handle.emit("agent-log", "[system] Agent auto-started on boot".to_string()).ok();
+                            }
+                            Err(e) => {
+                                log_step(&format!("auto-start: failed to start agent: {}", e));
+                                app_handle.emit("agent-log", format!("[system] Auto-start failed: {}", e)).ok();
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        log_step("auto-start: no saved config found, skipping");
+                    }
+                    Err(e) => {
+                        log_step(&format!("auto-start: failed to load config: {}", e));
+                    }
+                }
+            });
         }
 
         log_step("setup() completed");

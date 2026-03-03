@@ -134,10 +134,10 @@ function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
           type="text"
           value={config.control_plane_url}
           onChange={(e) => setConfig(prev => ({ ...prev, control_plane_url: e.target.value }))}
-          placeholder="codemantle.cloud/ws"
+          placeholder="codemantle.cloud"
           className={errors.control_plane_url ? 'error' : ''}
         />
-        <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol is added automatically.</span>
+        <span className="field-helper">Enter your server domain (e.g. myserver.com). Protocol and /ws path are added automatically.</span>
         {errors.control_plane_url && <span className="field-error">{errors.control_plane_url}</span>}
       </div>
 
@@ -291,6 +291,8 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
       await invoke('save_setup_config', { config })
       onNext()
     } catch (err) {
+      setLogs(prev => [...prev, `Error saving setup: ${err}`])
+      setStatus('error')
       console.error('Failed to save config:', err)
     }
   }
@@ -406,7 +408,11 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
       )}
 
       <div className="step-actions">
-        <button className="btn-secondary" onClick={onPrev}>
+        <button
+          className="btn-secondary"
+          onClick={onPrev}
+          disabled={status === 'checking' || status === 'ready'}
+        >
           <ArrowLeft size={20} />
           Back
         </button>
@@ -456,7 +462,7 @@ function App() {
   const [configLoaded, setConfigLoaded] = useState(false)
   const [config, setConfig] = useState<SetupConfig>({
     workspace_path: '',
-    control_plane_url: 'codemantle.cloud/ws',
+    control_plane_url: 'codemantle.cloud',
     auth_token: '',
     start_on_boot: false,
   })

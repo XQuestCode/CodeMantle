@@ -32,6 +32,8 @@ const state = {
   gitStatus: null,
   hasGitRepo: false,
   snapshotHydratedForSession: null,
+  verifyTokens: [],
+  selectedVerifyTokenId: null,
 };
 
 // DOM Elements
@@ -43,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
   restoreSessionState();
   bindEventListeners();
   connectUiSocket();
+  void refreshVerifyTokens(true);
   fetchDevices();
   setInterval(fetchDevices, CONFIG.REFRESH_MS);
   updateConnectionStatus('Connecting...', false);
@@ -61,7 +64,8 @@ function initializeElements() {
      'activity-log', 'clear-log', 'port-exposure', 'port-links',
       // Git elements
      'git-status-badge', 'git-branch', 'git-added-count', 'git-modified-count', 'git-untracked-count',
-     'git-init', 'git-clone', 'git-config', 'git-add', 'git-commit', 'git-pull', 'git-push', 'git-branch-btn', 'git-checkout', 'git-refresh',
+      'git-init', 'git-clone', 'git-config', 'git-add', 'git-commit', 'git-pull', 'git-push', 'git-branch-btn', 'git-checkout', 'git-refresh',
+      'verify-token-select', 'copy-verify-token', 'create-verify-token', 'regenerate-verify-token', 'delete-verify-token', 'refresh-verify-tokens',
   ];
   
   ids.forEach(id => {
@@ -133,6 +137,17 @@ function bindEventListeners() {
   elements['git-branch-btn']?.addEventListener('click', () => void handleGitBranch());
   elements['git-checkout']?.addEventListener('click', () => void handleGitCheckout());
   elements['git-refresh']?.addEventListener('click', () => void refreshGitStatus());
+
+  // Verify token actions
+  elements['verify-token-select']?.addEventListener('change', (event) => {
+    const nextId = event.target && typeof event.target.value === 'string' ? event.target.value : '';
+    state.selectedVerifyTokenId = nextId || null;
+  });
+  elements['refresh-verify-tokens']?.addEventListener('click', () => void refreshVerifyTokens(true));
+  elements['copy-verify-token']?.addEventListener('click', () => void copyVerifyToken());
+  elements['create-verify-token']?.addEventListener('click', () => void createVerifyToken());
+  elements['regenerate-verify-token']?.addEventListener('click', () => void regenerateVerifyToken());
+  elements['delete-verify-token']?.addEventListener('click', () => void deleteVerifyToken());
   
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
@@ -291,11 +306,29 @@ function selectDevice(deviceId) {
   renderTree();
   updateSessionUI();
   updateGitUI();
+
+  if (isMobileViewport()) {
+    closeMobileSidebar();
+  }
 }
 
 function toggleSidebar() {
+  if (isMobileViewport()) {
+    state.sidebarOpen = !elements['sidebar']?.classList.contains('open');
+    elements['sidebar']?.classList.toggle('open', state.sidebarOpen);
+    return;
+  }
   state.sidebarOpen = !state.sidebarOpen;
   elements['sidebar']?.classList.toggle('collapsed', !state.sidebarOpen);
+}
+
+function closeMobileSidebar() {
+  state.sidebarOpen = false;
+  elements['sidebar']?.classList.remove('open');
+}
+
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 640px)').matches;
 }
 
 // Tree Management
@@ -764,7 +797,7 @@ function restoreSessionState() {
     if (deviceId) state.selectedDeviceId = deviceId;
     if (folderPath) state.selectedFolderPath = folderPath;
     if (sessionId) state.sessionId = sessionId;
-    if (sessionUrl) state.sessionUrl = sessionUrl;
+    if (sessionUrl) state.sessionUrl = toProxySessionUrl(sessionUrl);
     if (sessionId || sessionUrl) state.isSessionActive = true;
 
     if (state.selectedDeviceId) {
@@ -960,7 +993,7 @@ async function handleStartSession() {
     
     if (payload.o === 1 && payload.u) {
       state.sessionId = typeof payload.s === 'string' ? payload.s : state.sessionId;
-      state.sessionUrl = payload.u;
+      state.sessionUrl = toProxySessionUrl(payload.u);
       state.isSessionActive = true;
       state.snapshotHydratedForSession = null;
       persistSessionState();
@@ -1037,6 +1070,28 @@ async function copySessionUrl() {
     showToast('success', 'URL copied', 'Session URL copied to clipboard');
   } catch {
     showToast('error', 'Copy failed', 'Could not copy to clipboard');
+  }
+}
+
+function toProxySessionUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl) return '';
+  try {
+    const parsed = new URL(rawUrl, window.location.origin);
+    const host = parsed.hostname.toLowerCase();
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    if (!isLocal) {
+      return parsed.toString();
+    }
+    if (!state.selectedDeviceId) {
+      return parsed.toString();
+    }
+    const port = parsed.port || '80';
+    const path = parsed.pathname || '/';
+    const query = parsed.search || '';
+    const hash = parsed.hash || '';
+    return `/device/${encodeURIComponent(state.selectedDeviceId)}/port/${encodeURIComponent(port)}${path}${query}${hash}`;
+  } catch {
+    return rawUrl;
   }
 }
 
@@ -1825,6 +1880,208 @@ async function handleGitCheckout() {
       } catch (error) {
         addLogEntry('error', `Checkout failed: ${error.message}`);
         showToast('error', 'Checkout failed', error.message);
+      }
+    },
+  });
+}
+
+async function refreshVerifyTokens(showToastOnError = false) {
+  try {
+    const payload = await apiJson('/auth/verify-tokens');
+    if (!payload || payload.o !== 1 || !Array.isArray(payload.t)) {
+      throw new Error('invalid_token_payload');
+    }
+
+    state.verifyTokens = payload.t
+      .filter((item) => item && typeof item === 'object' && typeof item.k === 'string' && typeof item.p === 'string' && typeof item.v === 'string')
+      .map((item) => ({ id: item.k, preview: item.p, value: item.v }));
+
+    if (!state.verifyTokens.some((token) => token.id === state.selectedVerifyTokenId)) {
+      state.selectedVerifyTokenId = state.verifyTokens[0]?.id || null;
+    }
+    renderVerifyTokens();
+  } catch (error) {
+    renderVerifyTokens();
+    if (showToastOnError) {
+      const message = error instanceof Error ? error.message : 'token_fetch_failed';
+      showToast('error', 'Failed to load tokens', message);
+    }
+  }
+}
+
+function renderVerifyTokens() {
+  const select = elements['verify-token-select'];
+  const copyBtn = elements['copy-verify-token'];
+  const regenBtn = elements['regenerate-verify-token'];
+  const deleteBtn = elements['delete-verify-token'];
+
+  if (select) {
+    select.innerHTML = '';
+    if (state.verifyTokens.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No tokens available';
+      select.appendChild(option);
+      select.disabled = true;
+    } else {
+      for (const token of state.verifyTokens) {
+        const option = document.createElement('option');
+        option.value = token.id;
+        option.textContent = token.preview;
+        if (token.id === state.selectedVerifyTokenId) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      }
+      select.disabled = false;
+    }
+  }
+
+  const hasToken = Boolean(getSelectedVerifyToken());
+  if (copyBtn) copyBtn.disabled = !hasToken;
+  if (regenBtn) regenBtn.disabled = !hasToken;
+  if (deleteBtn) deleteBtn.disabled = !hasToken || state.verifyTokens.length <= 1;
+}
+
+function getSelectedVerifyToken() {
+  if (!state.selectedVerifyTokenId) {
+    return null;
+  }
+  return state.verifyTokens.find((token) => token.id === state.selectedVerifyTokenId) || null;
+}
+
+async function copyVerifyToken() {
+  const selected = getSelectedVerifyToken();
+  if (!selected) {
+    showToast('error', 'No token selected', 'Create or select a token first');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(selected.value);
+    showToast('success', 'Verify token copied', selected.preview);
+  } catch {
+    showToast('error', 'Copy failed', 'Could not copy token to clipboard');
+  }
+}
+
+async function createVerifyToken() {
+  try {
+    const payload = await apiJson('/auth/verify-tokens/create', {
+      method: 'POST',
+      body: {},
+    });
+    if (!payload || payload.o !== 1 || !payload.t || typeof payload.t.k !== 'string') {
+      throw new Error(payload?.m || 'token_create_failed');
+    }
+
+    await refreshVerifyTokens(false);
+    state.selectedVerifyTokenId = payload.t.k;
+    renderVerifyTokens();
+    const selected = getSelectedVerifyToken();
+    if (selected) {
+      await navigator.clipboard.writeText(selected.value);
+      showToast('success', 'Token created', 'New token created and copied');
+    } else {
+      showToast('success', 'Token created', 'New token created');
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'token_create_failed';
+    showToast('error', 'Create token failed', message);
+  }
+}
+
+async function deleteVerifyToken() {
+  const selected = getSelectedVerifyToken();
+  if (!selected) {
+    showToast('error', 'No token selected', 'Select a token to expire');
+    return;
+  }
+  if (state.verifyTokens.length <= 1) {
+    showToast('error', 'Cannot expire token', 'At least one verify token is required');
+    return;
+  }
+
+  openModal({
+    title: 'Expire Token',
+    label: 'Type EXPIRE to confirm',
+    placeholder: 'EXPIRE',
+    confirmText: 'Expire',
+    confirmDanger: true,
+    callback: async (confirmValue) => {
+      if (confirmValue !== 'EXPIRE') {
+        showToast('error', 'Confirmation failed', 'Type EXPIRE to proceed');
+        return;
+      }
+
+      try {
+        const payload = await apiJson('/auth/verify-tokens/revoke', {
+          method: 'POST',
+          body: { keyId: selected.id },
+        });
+        if (!payload || payload.o !== 1) {
+          throw new Error(payload?.m || 'token_revoke_failed');
+        }
+        state.selectedVerifyTokenId = null;
+        await refreshVerifyTokens(false);
+        showToast('success', 'Token expired', selected.preview);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'token_revoke_failed';
+        showToast('error', 'Expire token failed', message);
+      }
+    },
+  });
+}
+
+async function regenerateVerifyToken() {
+  const selected = getSelectedVerifyToken();
+  if (!selected) {
+    showToast('error', 'No token selected', 'Select a token to regenerate');
+    return;
+  }
+
+  openModal({
+    title: 'Regenerate Token',
+    label: 'Type REGENERATE to confirm',
+    placeholder: 'REGENERATE',
+    confirmText: 'Regenerate',
+    confirmDanger: true,
+    callback: async (confirmValue) => {
+      if (confirmValue !== 'REGENERATE') {
+        showToast('error', 'Confirmation failed', 'Type REGENERATE to proceed');
+        return;
+      }
+
+      try {
+        const createPayload = await apiJson('/auth/verify-tokens/create', {
+          method: 'POST',
+          body: {},
+        });
+        if (!createPayload || createPayload.o !== 1 || !createPayload.t || typeof createPayload.t.k !== 'string') {
+          throw new Error(createPayload?.m || 'token_create_failed');
+        }
+
+        const revokePayload = await apiJson('/auth/verify-tokens/revoke', {
+          method: 'POST',
+          body: { keyId: selected.id },
+        });
+        if (!revokePayload || revokePayload.o !== 1) {
+          throw new Error(revokePayload?.m || 'token_revoke_failed');
+        }
+
+        await refreshVerifyTokens(false);
+        state.selectedVerifyTokenId = createPayload.t.k;
+        renderVerifyTokens();
+
+        const nextSelected = getSelectedVerifyToken();
+        if (nextSelected) {
+          await navigator.clipboard.writeText(nextSelected.value);
+          showToast('success', 'Token regenerated', 'Old token expired, new token copied');
+        } else {
+          showToast('success', 'Token regenerated', 'Old token expired');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'token_regenerate_failed';
+        showToast('error', 'Regenerate token failed', message);
       }
     },
   });

@@ -128,9 +128,9 @@ const ConnectionStep = React.memo<StepProps>(({
           value={config.control_plane_url}
           onChange={handleChange('control_plane_url')}
           onBlur={handleBlur('control_plane_url')}
-          placeholder="codemantle.cloud/ws"
+          placeholder="codemantle.cloud"
           error={touched.control_plane_url ? errors.control_plane_url : undefined}
-          helperText="Enter your server domain (e.g. myserver.com). Protocol is added automatically."
+          helperText="Enter your server domain (e.g. myserver.com). Protocol and /ws path are added automatically."
         />
 
         <Input

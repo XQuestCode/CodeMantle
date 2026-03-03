@@ -33,6 +33,13 @@ export function formatTimestamp(timestamp: number): string {
  * Accepts bare domains (e.g. "codemantle.xquest.dev"), domains with ports,
  * or full ws:// / wss:// URLs.  Returns the URL unchanged if it already
  * starts with ws:// or wss://.
+ *
+ * When the URL has no explicit path (or just "/"), we auto-append "/ws"
+ * because production and self-hosted deployments use Nginx to route the
+ * /ws location to the agent WebSocket server on port 8787.
+ *
+ * Exception: localhost / 127.0.0.1 URLs with an explicit port are left
+ * untouched (dev mode connects directly to port 8787 without a path).
  */
 export function normalizeControlPlaneUrl(input: string): string {
   let url = input.trim();
@@ -52,6 +59,23 @@ export function normalizeControlPlaneUrl(input: string): string {
 
   // Remove trailing slashes for consistency
   url = url.replace(/\/+$/, "");
+
+  // Auto-append /ws for non-localhost URLs that have no explicit path.
+  // Localhost/127.0.0.1 with a port is assumed to be a dev setup connecting
+  // directly to the control plane WebSocket server.
+  try {
+    const parsed = new URL(url.replace(/^ws/, "http")); // URL() needs http(s) scheme
+    const isLocal =
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1";
+    const hasPath = parsed.pathname !== "/" && parsed.pathname !== "";
+    if (!hasPath && !isLocal) {
+      url = url + "/ws";
+    }
+  } catch {
+    // If URL parsing fails, leave it as-is — validateControlPlaneUrl will catch it
+  }
 
   return url;
 }
