@@ -144,10 +144,7 @@ async fn start_agent_daemon_inner(
     
     // Determine sidecar binary based on platform
     let binary_name = get_sidecar_binary_name();
-    let sidecar_path = app
-        .path()
-        .resolve(&format!("sidecar/{}", binary_name), tauri::path::BaseDirectory::Resource)
-        .map_err(|e| e.to_string())?;
+    let sidecar_path = prepare_runtime_sidecar_path(&app, binary_name).await?;
     
     // Create .env file for the agent
     let env_content = format!(
@@ -448,6 +445,72 @@ fn get_sidecar_binary_name() -> &'static str {
     #[cfg(target_os = "linux")]
     {
         "codemantle-agent-linux"
+    }
+}
+
+async fn prepare_runtime_sidecar_path(app: &AppHandle, binary_name: &str) -> Result<std::path::PathBuf, String> {
+    let source_path = app
+        .path()
+        .resolve(&format!("sidecar/{}", binary_name), tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let runtime_dir = app_data.join("sidecar-runtime");
+    tokio::fs::create_dir_all(&runtime_dir).await.map_err(|e| e.to_string())?;
+
+    cleanup_runtime_sidecars(&runtime_dir, binary_name).await;
+
+    let runtime_file_name = runtime_sidecar_file_name(binary_name);
+    let runtime_path = runtime_dir.join(runtime_file_name);
+    tokio::fs::copy(&source_path, &runtime_path)
+        .await
+        .map_err(|e| format!("Failed to prepare runtime sidecar: {}", e))?;
+
+    Ok(runtime_path)
+}
+
+async fn cleanup_runtime_sidecars(runtime_dir: &std::path::Path, binary_name: &str) {
+    let prefix = runtime_sidecar_prefix(binary_name);
+    let mut entries = match tokio::fs::read_dir(runtime_dir).await {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if !file_name.starts_with(&prefix) {
+            continue;
+        }
+        let _ = tokio::fs::remove_file(entry.path()).await;
+    }
+}
+
+fn runtime_sidecar_prefix(binary_name: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        return format!("{}-", binary_name.trim_end_matches(".exe"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        return format!("{}-", binary_name);
+    }
+}
+
+fn runtime_sidecar_file_name(binary_name: &str) -> String {
+    let timestamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis(),
+        Err(_) => 0,
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        return format!("{}-{}.exe", binary_name.trim_end_matches(".exe"), timestamp);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        return format!("{}-{}", binary_name, timestamp);
     }
 }
 

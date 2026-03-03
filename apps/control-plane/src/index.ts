@@ -149,6 +149,7 @@ const pendingRequests = new Map<number, PendingRequest>();
 const uiClients = new Set<WebSocket>();
 const uiClientSubscriptions = new WeakMap<WebSocket, UiSubscription>();
 const devicePortOwnership = new Map<string, PortOwnership>();
+const deviceFolderSessions = new Map<string, DeviceFolderSession>();
 const sessionToDevice = new Map<string, string>();
 const sessionToOwner = new Map<string, string>();
 const pendingSnapshotPulls = new Map<string, PendingSnapshotPull>();
@@ -583,6 +584,12 @@ function unregisterSocket(ws: WebSocket): void {
     deviceRegistry.delete(state.deviceId);
     deviceMeta.delete(state.deviceId);
     devicePortOwnership.delete(state.deviceId);
+    const folderKeyPrefix = `${state.deviceId}:`;
+    for (const folderKey of deviceFolderSessions.keys()) {
+      if (folderKey.startsWith(folderKeyPrefix)) {
+        deviceFolderSessions.delete(folderKey);
+      }
+    }
     for (const [sessionId, mappedDeviceId] of sessionToDevice.entries()) {
       if (mappedDeviceId === state.deviceId) {
         sessionToDevice.delete(sessionId);
@@ -921,15 +928,62 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
           }
         }
 
-        const result = await startSession(deviceId, sessionId, folderPath, jitCredential);
-        if (result.o === 1) {
-          const effectiveSessionId = typeof result.s === "string" ? result.s : sessionId;
+        const existingStatus = await getSessionStatus(deviceId, folderPath);
+        if (existingStatus.o === 1 && existingStatus.u) {
+          const effectiveSessionId =
+            resolveSessionIdForFolderSession(deviceId, folderPath, existingStatus, auth.subject, sessionId)
+            ?? sessionId;
+          const existingPort = extractPortFromSessionUrl(existingStatus.u) ?? existingStatus.p;
+          rememberDeviceFolderSession(deviceId, folderPath, {
+            principalId: auth.subject,
+            sessionId: effectiveSessionId,
+            port: existingPort,
+            sessionUrl: existingStatus.u,
+            assignedAt: Date.now(),
+          });
           sessionToDevice.set(effectiveSessionId, deviceId);
           sessionToOwner.set(effectiveSessionId, auth.subject);
           devicePortOwnership.set(deviceId, {
             principalId: auth.subject,
             sessionId: effectiveSessionId,
             assignedAt: Date.now(),
+            ...(existingPort ? { port: existingPort } : {}),
+            folderKey: normalizeFolderPathKey(folderPath),
+          });
+
+          const reusedResult: SessionResultMessage = {
+            v: WS_PROTOCOL_VERSION,
+            t: "sr",
+            i: 0,
+            s: effectiveSessionId,
+            o: 1,
+            m: "session_reused",
+            ...(existingStatus.u ? { u: existingStatus.u } : {}),
+          };
+          const sessionResult = rewriteSessionResultUrl(deviceId, reusedResult);
+          sendJsonResponse(response, 200, sessionResult);
+          return;
+        }
+
+        const result = await startSession(deviceId, sessionId, folderPath, jitCredential);
+        if (result.o === 1) {
+          const effectiveSessionId = typeof result.s === "string" ? result.s : sessionId;
+          const port = extractPortFromSessionUrl(result.u);
+          rememberDeviceFolderSession(deviceId, folderPath, {
+            principalId: auth.subject,
+            sessionId: effectiveSessionId,
+            port,
+            sessionUrl: result.u,
+            assignedAt: Date.now(),
+          });
+          sessionToDevice.set(effectiveSessionId, deviceId);
+          sessionToOwner.set(effectiveSessionId, auth.subject);
+          devicePortOwnership.set(deviceId, {
+            principalId: auth.subject,
+            sessionId: effectiveSessionId,
+            assignedAt: Date.now(),
+            ...(port ? { port } : {}),
+            folderKey: normalizeFolderPathKey(folderPath),
           });
         }
         const sessionResult = rewriteSessionResultUrl(deviceId, result);
@@ -950,6 +1004,7 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
         if (result.o === 1) {
           sessionToDevice.delete(sessionId);
           sessionToOwner.delete(sessionId);
+          clearDeviceFolderSessionsBySessionId(deviceId, sessionId);
           const ownership = devicePortOwnership.get(deviceId);
           if (ownership && ownership.sessionId === sessionId) {
             devicePortOwnership.delete(deviceId);
@@ -993,6 +1048,28 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
         const deviceId = decodeURIComponent(statusMatch[1]!);
         const folderPath = readString(body.path, ".");
         const result = await getSessionStatus(deviceId, folderPath);
+        if (result.o === 1) {
+          const effectiveSessionId = resolveSessionIdForFolderSession(deviceId, folderPath, result, auth.subject);
+          if (effectiveSessionId) {
+            const port = extractPortFromSessionUrl(result.u) ?? result.p;
+            rememberDeviceFolderSession(deviceId, folderPath, {
+              principalId: auth.subject,
+              sessionId: effectiveSessionId,
+              port,
+              sessionUrl: result.u,
+              assignedAt: Date.now(),
+            });
+            sessionToDevice.set(effectiveSessionId, deviceId);
+            sessionToOwner.set(effectiveSessionId, auth.subject);
+            devicePortOwnership.set(deviceId, {
+              principalId: auth.subject,
+              sessionId: effectiveSessionId,
+              assignedAt: Date.now(),
+              ...(port ? { port } : {}),
+              folderKey: normalizeFolderPathKey(folderPath),
+            });
+          }
+        }
         const statusResult = rewriteSessionStatusUrl(deviceId, result);
         sendJsonResponse(response, 200, statusResult);
         return;
@@ -2605,7 +2682,7 @@ function parseSessionStatusResponse(value: unknown): SessionStatusResponseMessag
   if (!isObject(value)) {
     return null;
   }
-  if (!hasOnlyKeys(value, ["v", "t", "i", "o", "p", "d", "u", "m"])) {
+  if (!hasOnlyKeys(value, ["v", "t", "i", "o", "s", "p", "d", "u", "m"])) {
     return null;
   }
   if (value.v !== WS_PROTOCOL_VERSION || value.t !== "sv") {
@@ -2615,6 +2692,9 @@ function parseSessionStatusResponse(value: unknown): SessionStatusResponseMessag
     return null;
   }
   if (value.o !== 0 && value.o !== 1) {
+    return null;
+  }
+  if (value.s !== undefined && !matches(value.s, /^[A-Za-z0-9_-]{1,64}$/)) {
     return null;
   }
   if (value.p !== undefined && (!isInteger(value.p) || value.p < 1 || value.p > 65535)) {
@@ -3444,6 +3524,101 @@ function toProxySessionUrl(deviceId: string, rawUrl: string): string {
   }
 }
 
+function normalizeFolderPathKey(folderPath: string): string {
+  const normalized = folderPath.replace(/\\/g, "/").trim();
+  if (!normalized || normalized === "." || normalized === "/") {
+    return ".";
+  }
+  return normalized;
+}
+
+function buildDeviceFolderSessionKey(deviceId: string, folderPath: string): string {
+  return `${deviceId}:${normalizeFolderPathKey(folderPath)}`;
+}
+
+function rememberDeviceFolderSession(deviceId: string, folderPath: string, session: DeviceFolderSession): void {
+  const key = buildDeviceFolderSessionKey(deviceId, folderPath);
+  deviceFolderSessions.set(key, session);
+}
+
+function clearDeviceFolderSessionsBySessionId(deviceId: string, sessionId: string): void {
+  const prefix = `${deviceId}:`;
+  for (const [key, value] of deviceFolderSessions.entries()) {
+    if (key.startsWith(prefix) && value.sessionId === sessionId) {
+      deviceFolderSessions.delete(key);
+    }
+  }
+}
+
+function resolveSessionIdForFolderSession(
+  deviceId: string,
+  folderPath: string,
+  status: SessionStatusResponseMessage,
+  principalId: string,
+  fallbackSessionId?: string,
+): string | undefined {
+  if (status.s && matches(status.s, /^[A-Za-z0-9_-]{1,64}$/)) {
+    return status.s;
+  }
+  const fromUrl = readSessionIdFromSessionUrl(status.u);
+  if (fromUrl) {
+    return fromUrl;
+  }
+  const key = buildDeviceFolderSessionKey(deviceId, folderPath);
+  const known = deviceFolderSessions.get(key);
+  if (known && known.principalId === principalId) {
+    return known.sessionId;
+  }
+  return fallbackSessionId;
+}
+
+function readSessionIdFromSessionUrl(rawUrl: string | undefined): string | undefined {
+  if (!rawUrl) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(rawUrl, "http://localhost");
+    const match = /\/session\/([A-Za-z0-9_-]{1,64})(?:\/|$)/.exec(parsed.pathname);
+    if (match?.[1]) {
+      return match[1];
+    }
+    const rootMatch = /^\/(ses[A-Za-z0-9_-]{1,64})(?:\/|$)/.exec(parsed.pathname);
+    if (rootMatch?.[1]) {
+      return rootMatch[1];
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function extractPortFromSessionUrl(rawUrl: string | undefined): number | undefined {
+  if (!rawUrl) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(rawUrl, "http://localhost");
+    const proxyMatch = /^\/device\/[^/]+\/port\/(\d{1,5})(?:\/|$)/.exec(parsed.pathname);
+    if (proxyMatch?.[1]) {
+      const proxiedPort = parseInt(proxyMatch[1], 10);
+      if (Number.isInteger(proxiedPort) && proxiedPort >= 1 && proxiedPort <= 65535) {
+        return proxiedPort;
+      }
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      const parsedPort = parseInt(parsed.port, 10);
+      if (Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
+        return parsedPort;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseGatewayBaseUrls(raw: string): Map<string, string> {
   const map = new Map<string, string>();
   for (const part of raw.split(",")) {
@@ -3658,10 +3833,20 @@ type UiSubscription = {
   streamId: string;
 };
 
+type DeviceFolderSession = {
+  principalId: string;
+  sessionId: string;
+  port: number | undefined;
+  sessionUrl: string | undefined;
+  assignedAt: number;
+};
+
 type PortOwnership = {
   principalId: string;
   sessionId: string;
   assignedAt: number;
+  port?: number;
+  folderKey?: string;
 };
 
 type PendingSnapshotPull = {

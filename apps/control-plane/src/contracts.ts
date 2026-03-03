@@ -410,6 +410,7 @@ export interface SessionStatusResponseMessage {
   t: "sv";
   i: number;
   o: 0 | 1;
+  s?: string;
   p?: number;
   d?: number;
   u?: string;

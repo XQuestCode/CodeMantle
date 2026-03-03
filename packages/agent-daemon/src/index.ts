@@ -837,6 +837,7 @@ async function handleSessionStatus(
     t: "sv",
     i: message.i,
     o: status.ok ? 1 : 0,
+    ...(status.sessionId ? { s: status.sessionId } : {}),
     ...(status.port ? { p: status.port } : {}),
     ...(status.pid ? { d: status.pid } : {}),
     ...(status.sessionUrl ? { u: status.sessionUrl } : {}),
@@ -4942,6 +4943,36 @@ class OpenCodeOrchestrator {
       return { ok: false, message: serverResult.message ?? "opencode_down" };
     }
 
+    const existingSessionId = this.resolveSessionIdForFolder(
+      resolvedFolderPath,
+      serverResult.server,
+    );
+    if (existingSessionId) {
+      serverResult.server.activeSessionId = existingSessionId;
+      this.sessionsToFolder.set(existingSessionId, resolvedFolderPath);
+      if (jitCredential) {
+        this.bindSessionJit(
+          existingSessionId,
+          resolvedFolderPath,
+          serverResult.server,
+          jitCredential,
+        );
+      }
+      const existingEditorUrl = normalizeEditorUrl(
+        serverResult.server.baseUrl,
+        resolvedFolderPath,
+        serverResult.server.sessionUrl,
+      );
+      serverResult.server.sessionUrl = existingEditorUrl;
+      await this.persistRegistrySnapshot();
+      return {
+        ok: true,
+        message: "session_reused",
+        sessionId: existingSessionId,
+        uiUrl: existingEditorUrl,
+      };
+    }
+
     const result = await serverResult.server.client.initSession(
       sessionId,
       resolvedFolderPath,
@@ -4949,6 +4980,7 @@ class OpenCodeOrchestrator {
     if (result.ok) {
       const effectiveSessionId = result.sessionId ?? sessionId;
       this.sessionsToFolder.set(effectiveSessionId, resolvedFolderPath);
+      serverResult.server.activeSessionId = effectiveSessionId;
       if (jitCredential) {
         this.bindSessionJit(
           effectiveSessionId,
@@ -4994,6 +5026,7 @@ class OpenCodeOrchestrator {
       if (retried.ok) {
         const effectiveSessionId = retried.sessionId ?? sessionId;
         this.sessionsToFolder.set(effectiveSessionId, resolvedFolderPath);
+        restarted.server.activeSessionId = effectiveSessionId;
         if (jitCredential) {
           this.bindSessionJit(
             effectiveSessionId,
@@ -5046,8 +5079,15 @@ class OpenCodeOrchestrator {
       return { ok: false, message: "not_running" };
     }
 
+    const sessionId = this.resolveSessionIdForFolder(resolvedFolderPath, server);
+    if (sessionId) {
+      server.activeSessionId = sessionId;
+      this.sessionsToFolder.set(sessionId, resolvedFolderPath);
+    }
+
     return {
       ok: true,
+      ...(sessionId ? { sessionId } : {}),
       port: server.port,
       pid: server.pid,
       sessionUrl: normalizeEditorUrl(
@@ -5073,7 +5113,22 @@ class OpenCodeOrchestrator {
       );
       if (result.ok) {
         this.sessionsToFolder.delete(sessionId);
+        if (candidate.folderPath) {
+          const server = this.serversByFolder.get(candidate.folderPath);
+          if (server && server.activeSessionId === sessionId) {
+            const nextSessionId = this.resolveSessionIdForFolder(
+              candidate.folderPath,
+              server,
+            );
+            if (nextSessionId) {
+              server.activeSessionId = nextSessionId;
+            } else {
+              delete server.activeSessionId;
+            }
+          }
+        }
         await this.clearSessionJit(sessionId, "session_terminated");
+        await this.persistRegistrySnapshot();
         return result;
       }
       if (
@@ -5332,6 +5387,7 @@ class OpenCodeOrchestrator {
       }
 
       const baseUrl = `http://${OPENCODE_HOST}:${entry.port}`;
+      const sessionId = entry.sessionId ?? readSessionIdFromEditorUrl(entry.sessionUrl);
       const server: ManagedOpenCodeServer = {
         folderPath: entry.folderPath,
         baseUrl,
@@ -5344,10 +5400,14 @@ class OpenCodeOrchestrator {
           entry.folderPath,
           entry.sessionUrl,
         ),
+        ...(sessionId ? { activeSessionId: sessionId } : {}),
       };
 
       if (await this.isServerReachable(baseUrl)) {
         this.serversByFolder.set(entry.folderPath, server);
+        if (sessionId) {
+          this.sessionsToFolder.set(sessionId, entry.folderPath);
+        }
       }
     }
 
@@ -5656,17 +5716,40 @@ class OpenCodeOrchestrator {
     return clients;
   }
 
+  private resolveSessionIdForFolder(
+    folderPath: string,
+    server: ManagedOpenCodeServer,
+  ): string | undefined {
+    if (server.activeSessionId) {
+      return server.activeSessionId;
+    }
+
+    let mappedSessionId: string | undefined;
+    for (const [sessionId, mappedFolderPath] of this.sessionsToFolder.entries()) {
+      if (mappedFolderPath === folderPath) {
+        mappedSessionId = sessionId;
+      }
+    }
+    if (mappedSessionId) {
+      return mappedSessionId;
+    }
+
+    return readSessionIdFromEditorUrl(server.sessionUrl) ?? undefined;
+  }
+
   private async persistRegistrySnapshot(): Promise<void> {
     const entries: SessionRegistryEntry[] = [];
     for (const server of this.serversByFolder.values()) {
       if (!this.isPidAlive(server.pid)) {
         continue;
       }
+      const sessionId = this.resolveSessionIdForFolder(server.folderPath, server);
       entries.push({
         folderPath: server.folderPath,
         port: server.port,
         pid: server.pid,
         sessionUrl: server.sessionUrl,
+        ...(sessionId ? { sessionId } : {}),
       });
     }
     await this.sessionRegistry.writeAll(entries);
@@ -5685,6 +5768,7 @@ type ManagedOpenCodeServer = {
   process: ChildProcess | null;
   client: OpenCodeClient;
   sessionUrl: string;
+  activeSessionId?: string;
   jitCredentialFingerprint?: string;
   jitCredentialRef?: string;
   jitCredentialExpiry?: number;
@@ -5703,6 +5787,7 @@ type SessionJitBinding = {
 
 type OpenCodeSessionStatus = {
   ok: boolean;
+  sessionId?: string;
   port?: number;
   pid?: number;
   sessionUrl?: string;
@@ -5728,6 +5813,7 @@ type SessionRegistryEntry = {
   port: number;
   pid: number;
   sessionUrl: string;
+  sessionId?: string;
 };
 
 class SessionRegistry {
@@ -5763,11 +5849,16 @@ class SessionRegistry {
           typeof item.sessionUrl === "string" && item.sessionUrl.length > 0
             ? item.sessionUrl
             : `http://${OPENCODE_HOST}:${item.port}`;
+        const sessionId =
+          typeof item.sessionId === "string" && matches(item.sessionId, /^[A-Za-z0-9_-]{1,64}$/)
+            ? item.sessionId
+            : undefined;
         entries.push({
           folderPath: item.folderPath,
           port: item.port,
           pid: item.pid,
           sessionUrl,
+          ...(sessionId ? { sessionId } : {}),
         });
       }
       return entries;
@@ -5786,6 +5877,7 @@ class SessionRegistry {
             port: entry.port,
             pid: entry.pid,
             sessionUrl: entry.sessionUrl,
+            ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
           }))
           .sort((left, right) =>
             left.folderPath.localeCompare(right.folderPath),
@@ -6252,6 +6344,19 @@ function normalizeEditorUrl(
     return parsed.toString();
   } catch {
     return fallbackUrl;
+  }
+}
+
+function readSessionIdFromEditorUrl(urlText: string): string | null {
+  try {
+    const parsed = new URL(urlText);
+    const match = /\/session\/([A-Za-z0-9_-]{1,64})(?:\/|$)/.exec(parsed.pathname);
+    if (match && match[1]) {
+      return match[1];
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
