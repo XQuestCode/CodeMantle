@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::Write;
 use tauri::{Manager, Emitter, Runtime, State, AppHandle, WindowEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::async_runtime::{self, Mutex};
 use tokio::process::{Child, Command};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -489,7 +489,7 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
         .menu(&menu)
         .tooltip("CodeMantle Agent")
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { .. } = event {
+            if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
@@ -626,6 +626,14 @@ fn main() {
 
     log_step("adding updater plugin");
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    log_step("adding single-instance plugin");
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
 
     log_step("adding managed state");
     let builder = builder.manage(AppState {

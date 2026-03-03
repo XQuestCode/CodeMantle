@@ -609,7 +609,10 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     const pathname = url.pathname;
-    applySecurityHeaders(response);
+    const proxyMatch = /^\/device\/([^/]+)\/port\/(\d{1,5})(\/.*)?$/.exec(pathname);
+    if (!proxyMatch) {
+      applySecurityHeaders(response);
+    }
     const cookies = parseCookies(request.headers.cookie);
 
     if (method === "GET" && pathname === "/health") {
@@ -764,7 +767,6 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       return;
     }
 
-    const proxyMatch = /^\/device\/([^/]+)\/port\/(\d{1,5})(\/.*)?$/.exec(pathname);
     if (proxyMatch) {
       const deviceId = decodeURIComponent(proxyMatch[1]!);
       const port = parseInt(proxyMatch[2]!, 10);
@@ -781,7 +783,8 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const proxyPath = `${pathSuffix}${url.search}`;
       const rawBody = await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
       const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
-      sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, proxied.body);
+      const rewrittenBody = injectProxyBaseHref(proxied.headers, proxied.body, deviceId, port);
+      sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, rewrittenBody);
       return;
     }
 
@@ -2328,6 +2331,48 @@ function sendProxyResponse(
   }
   response.setHeader("content-length", body.byteLength);
   response.end(body);
+}
+
+function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number): Buffer {
+  const contentType = getProxyHeaderValue(headers, "content-type");
+  if (!contentType || !contentType.toLowerCase().includes("text/html")) {
+    return body;
+  }
+
+  const proxyPrefix = `/device/${encodeURIComponent(deviceId)}/port/${encodeURIComponent(String(port))}`;
+  const baseHref = `${proxyPrefix}/`;
+  const originalHtml = body.toString("utf8");
+  let rewritten = originalHtml;
+
+  if (/<head(?:\s|>)/i.test(rewritten) && !/<base(?:\s|>)/i.test(rewritten)) {
+    const baseTag = `<base href="${baseHref}">`;
+    rewritten = rewritten.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`);
+  }
+
+  rewritten = rewriteRootRelativeHtmlUrls(rewritten, proxyPrefix);
+  if (rewritten === originalHtml) {
+    return body;
+  }
+
+  return Buffer.from(rewritten, "utf8");
+}
+
+function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string {
+  let rewritten = html;
+  rewritten = rewritten.replace(/(\b(?:src|href|action|poster)=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
+  rewritten = rewritten.replace(/(\bcontent=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
+  rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
+  return rewritten;
+}
+
+function getProxyHeaderValue(headers: ProxyHeaderEntry[], headerName: string): string | null {
+  const target = headerName.toLowerCase();
+  for (const [name, value] of headers) {
+    if (name.toLowerCase() === target) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function parseSnapshotJsonLines(raw: string): Array<Record<string, unknown>> {
