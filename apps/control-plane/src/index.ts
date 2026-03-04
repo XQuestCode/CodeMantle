@@ -119,6 +119,7 @@ const JIT_CREDENTIAL_ENV_ALLOWLIST = parseJitEnvAllowlist(
 const JIT_CREDENTIAL_SIGNING_KEY = (process.env.JIT_CREDENTIAL_SIGNING_KEY ?? "").trim();
 const PORT_PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PORT_PROXY_REQUEST_TIMEOUT_MS ?? "20000", 10);
 const PORT_PROXY_MAX_BODY_BYTES = parseInt(process.env.PORT_PROXY_MAX_BODY_BYTES ?? "16777216", 10);
+const PORT_PROXY_MAX_RESPONSE_BASE64_CHARS = Math.ceil(PORT_PROXY_MAX_BODY_BYTES / 3) * 4 + 4;
 const PORT_PROXY_MAX_HEADER_COUNT = parseInt(process.env.PORT_PROXY_MAX_HEADER_COUNT ?? "64", 10);
 const MCP_GATEWAY_BASE_URLS = parseGatewayBaseUrls(process.env.MCP_GATEWAY_BASE_URLS ?? process.env.MCP_GATEWAY_BASE_URL ?? "");
 const AUTH = AuthService.fromEnv(process.env);
@@ -3219,7 +3220,7 @@ function parsePortProxyResponse(value: unknown): PortProxyResponseMessage | null
   if (value.h !== undefined && (!Array.isArray(value.h) || value.h.length > PORT_PROXY_MAX_HEADER_COUNT || !value.h.every(isProxyHeaderEntry))) {
     return null;
   }
-  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > 3_000_000)) {
+  if (value.b !== undefined && (typeof value.b !== "string" || value.b.length > PORT_PROXY_MAX_RESPONSE_BASE64_CHARS)) {
     return null;
   }
   if (value.m !== undefined && !shortString(value.m, 256)) {
