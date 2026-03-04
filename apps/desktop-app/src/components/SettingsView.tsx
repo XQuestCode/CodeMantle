@@ -162,12 +162,16 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   }
 
   const handleSave = async () => {
-    // Normalize URL before validation
-    if (config.control_plane_url) {
-      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
-      if (normalized !== config.control_plane_url) {
-        setConfig((prev) => ({ ...prev, control_plane_url: normalized }))
-      }
+    // Build normalized config to avoid stale-state issues with setConfig
+    const normalizedConfig: typeof config = {
+      ...config,
+      control_plane_url: config.control_plane_url
+        ? normalizeControlPlaneUrl(config.control_plane_url)
+        : config.control_plane_url,
+    }
+
+    if (normalizedConfig.control_plane_url !== config.control_plane_url) {
+      setConfig(normalizedConfig)
     }
 
     if (!validate()) return
@@ -176,8 +180,8 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
     setSaveError('')
 
     try {
-      await invoke('save_setup_config', { config })
-      setSavedConfig({ ...config })
+      await invoke('save_setup_config', { config: normalizedConfig })
+      setSavedConfig({ ...normalizedConfig })
       setDirty(false)
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus('idle'), 2000)
@@ -188,12 +192,16 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   }
 
   const handleStartAgent = async () => {
-    // Normalize URL before starting
-    if (config.control_plane_url) {
-      const normalized = normalizeControlPlaneUrl(config.control_plane_url)
-      if (normalized !== config.control_plane_url) {
-        setConfig((prev) => ({ ...prev, control_plane_url: normalized }))
-      }
+    // Build normalized config to avoid stale-state issues with setConfig
+    const normalizedConfig: typeof config = {
+      ...config,
+      control_plane_url: config.control_plane_url
+        ? normalizeControlPlaneUrl(config.control_plane_url)
+        : config.control_plane_url,
+    }
+
+    if (normalizedConfig.control_plane_url !== config.control_plane_url) {
+      setConfig(normalizedConfig)
     }
 
     if (!validate()) return
@@ -201,8 +209,8 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
     // Save config first if dirty
     if (dirty) {
       try {
-        await invoke('save_setup_config', { config })
-        setSavedConfig({ ...config })
+        await invoke('save_setup_config', { config: normalizedConfig })
+        setSavedConfig({ ...normalizedConfig })
         setDirty(false)
       } catch (err) {
         setSaveError(`Failed to save config: ${err}`)
@@ -214,7 +222,7 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
     setLogs([])
 
     try {
-      await invoke('start_agent_daemon', { config })
+      await invoke('start_agent_daemon', { config: normalizedConfig })
     } catch (err) {
       setAgentStatus('stopped')
       setLogs((prev) => [...prev, `Error: ${err}`])
@@ -242,10 +250,18 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       // Agent may not be running, that's fine
     }
 
+    // Build normalized config to avoid stale-state issues
+    const normalizedConfig: typeof config = {
+      ...config,
+      control_plane_url: config.control_plane_url
+        ? normalizeControlPlaneUrl(config.control_plane_url)
+        : config.control_plane_url,
+    }
+
     setAgentStatus('starting')
 
     try {
-      await invoke('start_agent_daemon', { config })
+      await invoke('start_agent_daemon', { config: normalizedConfig })
     } catch (err) {
       setAgentStatus('stopped')
       setLogs((prev) => [...prev, `Error: ${err}`])

@@ -556,6 +556,7 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
+                    let _ = window.unminimize();
                     let _ = window.set_focus();
                 }
             }
@@ -565,12 +566,14 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
                 "show" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
+                        let _ = window.unminimize();
                         let _ = window.set_focus();
                     }
                 }
                 "settings" => {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
+                        let _ = window.unminimize();
                         let _ = window.set_focus();
                         let _ = window.emit("open-settings", true);
                     }
@@ -694,6 +697,7 @@ fn main() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.show();
+            let _ = window.unminimize();
             let _ = window.set_focus();
         }
     }));

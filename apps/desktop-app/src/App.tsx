@@ -526,15 +526,18 @@ function App() {
               { step: 2, label: 'Connection' },
               { step: 3, label: 'Pre-flight' },
             ].map(({ step, label }) => (
-              <div
+              <button
                 key={step}
+                type="button"
                 className={`step-row ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
+                onClick={() => { if (step <= currentStep) setCurrentStep(step) }}
+                disabled={step > currentStep}
               >
                 <div className="step-dot">
                   {step < currentStep ? <CheckCircle size={16} /> : step}
                 </div>
                 <span className="step-label">{label}</span>
-              </div>
+              </button>
             ))}
           </div>
         )}

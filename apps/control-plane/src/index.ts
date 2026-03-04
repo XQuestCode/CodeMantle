@@ -789,26 +789,9 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const pathSuffix = proxyMatch[3] ?? "/";
       const proxyPath = `${pathSuffix}${url.search}`;
       const rawBody = await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
-      let proxied: ProxiedHttpResult;
-      try {
-        proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
-      } catch (error) {
-        const fallbackPath = buildProxyFallbackPath(deviceId, port, ownership.sessionId, pathSuffix, url.search, request.headers.referer);
-        if (!shouldRetryProxyAssetRequest(method, rawBody, fallbackPath, proxyPath)) {
-          throw error;
-        }
-        proxied = await proxyHttpToDevice(deviceId, port, method, fallbackPath, request.headers, rawBody);
-      }
+      const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
 
-      const fallbackPath = buildProxyFallbackPath(deviceId, port, ownership.sessionId, pathSuffix, url.search, request.headers.referer);
-      if (shouldRetryProxyStatus(method, rawBody, proxied.status, fallbackPath, proxyPath)) {
-        const fallback = await proxyHttpToDevice(deviceId, port, method, fallbackPath, request.headers, rawBody);
-        if (isProxyFallbackPreferred(proxied.status, fallback.status)) {
-          proxied = fallback;
-        }
-      }
-
-      const rewrittenBody = injectProxyBaseHref(proxied.headers, proxied.body, deviceId, port, pathSuffix);
+      const rewrittenBody = rewriteProxiedHtml(proxied.headers, proxied.body, deviceId, port);
       sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, rewrittenBody);
       return;
     }
@@ -2428,24 +2411,30 @@ function sendProxyResponse(
   response.end(body);
 }
 
-function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number, requestPathSuffix: string): Buffer {
+/**
+ * Rewrites HTML responses from the upstream OpenCode server so that
+ * root-relative asset URLs (e.g. `/assets/index.js`, `/site.webmanifest`)
+ * are prefixed with the proxy route for this device+port.
+ *
+ * OpenCode (Vite-built) serves assets at the server root while session pages
+ * live under `/<base64folder>/session/<id>`. The browser sees everything
+ * through `/device/<deviceId>/port/<port>/...`, so root-relative paths
+ * must be rewritten to include that prefix.
+ *
+ * A `<base href>` tag is NOT injected because it would also affect relative
+ * URLs (e.g. `./api/...`) that are already correct within their directory
+ * context. Instead we perform explicit attribute-level rewriting of
+ * root-relative URLs only.
+ */
+function rewriteProxiedHtml(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number): Buffer {
   const contentType = getProxyHeaderValue(headers, "content-type");
   if (!contentType || !contentType.toLowerCase().includes("text/html")) {
     return body;
   }
 
   const proxyPrefix = `/device/${encodeURIComponent(deviceId)}/port/${encodeURIComponent(String(port))}`;
-  const scopedPrefix = buildScopedProxyPrefix(proxyPrefix, requestPathSuffix);
-  const baseHref = `${scopedPrefix}/`;
   const originalHtml = body.toString("utf8");
-  let rewritten = originalHtml;
-
-  if (/<head(?:\s|>)/i.test(rewritten) && !/<base(?:\s|>)/i.test(rewritten)) {
-    const baseTag = `<base href="${baseHref}">`;
-    rewritten = rewritten.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`);
-  }
-
-  rewritten = rewriteRootRelativeHtmlUrls(rewritten, scopedPrefix);
+  const rewritten = rewriteRootRelativeHtmlUrls(originalHtml, proxyPrefix);
   if (rewritten === originalHtml) {
     return body;
   }
@@ -2456,186 +2445,9 @@ function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId
 function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string {
   let rewritten = html;
   rewritten = rewritten.replace(/(\b(?:src|href|action|poster)=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
-  rewritten = rewritten.replace(/(\bcontent=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
+  rewritten = rewritten.replace(/(\bcontent=["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   return rewritten;
-}
-
-function shouldRetryProxyAssetRequest(
-  method: string,
-  body: Buffer,
-  fallbackPath: string | undefined,
-  originalPath: string,
-): fallbackPath is string {
-  if (method !== "GET" && method !== "HEAD") {
-    return false;
-  }
-  if (body.byteLength > 0) {
-    return false;
-  }
-  if (!fallbackPath || fallbackPath === originalPath) {
-    return false;
-  }
-  return true;
-}
-
-function shouldRetryProxyStatus(
-  method: string,
-  body: Buffer,
-  statusCode: number,
-  fallbackPath: string | undefined,
-  originalPath: string,
-): fallbackPath is string {
-  if (!shouldRetryProxyAssetRequest(method, body, fallbackPath, originalPath)) {
-    return false;
-  }
-  return statusCode === 401 || statusCode === 404 || statusCode === 502;
-}
-
-function isProxyFallbackPreferred(primaryStatus: number, fallbackStatus: number): boolean {
-  if (fallbackStatus >= 200 && fallbackStatus < 400) {
-    return true;
-  }
-  if (primaryStatus >= 400 && fallbackStatus < primaryStatus) {
-    return true;
-  }
-  return false;
-}
-
-function buildProxyFallbackPath(
-  deviceId: string,
-  port: number,
-  sessionId: string,
-  pathSuffix: string,
-  search: string,
-  refererHeader: string | string[] | undefined,
-): string | undefined {
-  if (!pathSuffix.startsWith("/") || pathSuffix === "/") {
-    return undefined;
-  }
-
-  const assetPath = pathSuffix.slice(1);
-  if (!assetPath || assetPath.includes("..")) {
-    return undefined;
-  }
-
-  const scopedBase = resolveScopedProxyBasePath(deviceId, port, sessionId, refererHeader);
-  if (!scopedBase || scopedBase === "/") {
-    return undefined;
-  }
-
-  const base = scopedBase.endsWith("/") ? scopedBase : `${scopedBase}/`;
-  return `${base}${assetPath}${search}`;
-}
-
-function resolveScopedProxyBasePath(
-  deviceId: string,
-  port: number,
-  sessionId: string,
-  refererHeader: string | string[] | undefined,
-): string | undefined {
-  const refererValue = readHeaderValue(refererHeader);
-  const fromReferer = deriveScopedPathFromProxiedUrl(refererValue, deviceId, port);
-  if (fromReferer && fromReferer !== "/") {
-    return fromReferer;
-  }
-
-  const fromSession = deriveScopedPathFromKnownSession(deviceId, sessionId, port);
-  if (fromSession && fromSession !== "/") {
-    return fromSession;
-  }
-
-  return undefined;
-}
-
-function readHeaderValue(value: string | string[] | undefined): string | undefined {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") {
-    return value[0];
-  }
-  return undefined;
-}
-
-function deriveScopedPathFromProxiedUrl(rawUrl: string | undefined, deviceId: string, port: number): string | undefined {
-  if (!rawUrl) {
-    return undefined;
-  }
-  try {
-    const parsed = new URL(rawUrl, "http://localhost");
-    const match = /^\/device\/([^/]+)\/port\/(\d{1,5})(\/.*)?$/.exec(parsed.pathname);
-    if (!match) {
-      return undefined;
-    }
-    const refererDeviceId = decodeURIComponent(match[1]!);
-    const refererPort = parseInt(match[2]!, 10);
-    if (refererDeviceId !== deviceId || refererPort !== port) {
-      return undefined;
-    }
-    const suffix = match[3] ?? "/";
-    return toDirectoryPath(suffix);
-  } catch {
-    return undefined;
-  }
-}
-
-function deriveScopedPathFromKnownSession(deviceId: string, sessionId: string, port: number): string | undefined {
-  const prefix = `${deviceId}:`;
-  for (const [key, session] of deviceFolderSessions.entries()) {
-    if (!key.startsWith(prefix) || session.sessionId !== sessionId || !session.sessionUrl) {
-      continue;
-    }
-    const parsedPort = extractPortFromSessionUrl(session.sessionUrl);
-    if (!parsedPort || parsedPort !== port) {
-      continue;
-    }
-    const fromProxyUrl = deriveScopedPathFromProxiedUrl(session.sessionUrl, deviceId, port);
-    if (fromProxyUrl && fromProxyUrl !== "/") {
-      return fromProxyUrl;
-    }
-    try {
-      const parsed = new URL(session.sessionUrl, "http://localhost");
-      const pathname = parsed.pathname || "/";
-      const directory = toDirectoryPath(pathname);
-      if (directory !== "/") {
-        return directory;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
-}
-
-function toDirectoryPath(pathname: string): string {
-  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
-  const withoutQuery = normalized.split("?")[0]?.split("#")[0] ?? "/";
-  if (withoutQuery === "/") {
-    return "/";
-  }
-  if (withoutQuery.endsWith("/")) {
-    return withoutQuery.length > 1 ? withoutQuery.slice(0, -1) : "/";
-  }
-  const slashIndex = withoutQuery.lastIndexOf("/");
-  if (slashIndex <= 0) {
-    return "/";
-  }
-  return withoutQuery.slice(0, slashIndex);
-}
-
-function buildScopedProxyPrefix(proxyPrefix: string, requestPathSuffix: string): string {
-  const cleanSuffix = requestPathSuffix.split("?")[0]?.split("#")[0] ?? "/";
-  const normalized = cleanSuffix.startsWith("/") ? cleanSuffix : `/${cleanSuffix}`;
-  const lastSlash = normalized.lastIndexOf("/");
-  const directory = lastSlash >= 0 ? normalized.slice(0, lastSlash + 1) : "/";
-  const trimmedDirectory = directory.endsWith("/") && directory.length > 1
-    ? directory.slice(0, -1)
-    : directory;
-  if (trimmedDirectory === "/") {
-    return proxyPrefix;
-  }
-  return `${proxyPrefix}${trimmedDirectory}`;
 }
 
 function getProxyHeaderValue(headers: ProxyHeaderEntry[], headerName: string): string | null {

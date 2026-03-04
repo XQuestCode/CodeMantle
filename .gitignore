@@ -5,6 +5,7 @@ npm-debug.log*
 # Build artifacts
 dist/
 coverage/
+packages/agent-daemon/bin/@codemantle/
 
 # Tauri / Rust
 target/
@@ -32,3 +33,5 @@ Thumbs.db
 
 mvp-state.md
 PROTOCOL.md
+
+

@@ -1009,6 +1009,12 @@ async function handleStartSession() {
     return;
   }
   
+  // Disable button and show "Starting..." while the request is in flight
+  const startBtn = elements['start-session'];
+  const startText = elements['start-session-text'];
+  if (startBtn) startBtn.disabled = true;
+  if (startText) startText.textContent = 'Starting\u2026';
+
   addLogEntry('info', `Starting OpenCode for: ${state.selectedFolderPath}`);
   
   try {
@@ -1038,6 +1044,7 @@ async function handleStartSession() {
     showToast('error', 'Failed to start OpenCode', message);
   }
   
+  // updateSessionUI restores the correct enabled/disabled state and label
   updateSessionUI();
 }
 

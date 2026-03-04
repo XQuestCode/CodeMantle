@@ -68,6 +68,21 @@ body {
   padding: 6px 8px;
   border-radius: 8px;
   transition: background 0.2s ease;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.step-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.step-row.completed:hover {
+  background: var(--surface-light);
 }
 
 .step-row .step-dot {
