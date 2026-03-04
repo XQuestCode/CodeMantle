@@ -59,6 +59,8 @@ import {
   type PortListMessage,
   type PortProxyRequestMessage,
   type PortProxyResponseMessage,
+  type PortProxyStreamChunkMessage,
+  type PortProxyStreamEndMessage,
   type ProxyHeaderEntry,
   type StartSessionMessage,
   type TelemetryPingMessage,
@@ -263,6 +265,8 @@ let stopping = false;
 const runtimeSensitiveValues = new Set<string>();
 const baselineListeningPorts = new Set<number>();
 const publishedListeningPorts = new Set<number>();
+/** Active SSE proxy streams keyed by request ID — used to abort on disconnect. */
+const activeProxyStreams = new Map<number, AbortController>();
 let baselinePortsInitialized = false;
 let latestSessionInitConfig: {
   templateId: string;
@@ -320,6 +324,11 @@ function connect(): void {
     clearLifecycleTimers();
     handshakeComplete = false;
     socket = null;
+    // Abort any active SSE proxy streams — the CP is gone.
+    for (const [, ctrl] of activeProxyStreams) {
+      ctrl.abort();
+    }
+    activeProxyStreams.clear();
     log(`disconnected code=${code} reason=${reason.toString("utf8") || "n/a"}`);
     scheduleReconnect();
   });
@@ -948,6 +957,81 @@ async function handlePortProxyRequest(
       responseStatus = response.status;
       responseStatusText = response.statusText || "ok";
       responseHeaders = toProxyHeaderEntries(response.headers);
+
+      // ── SSE / streaming detection ──────────────────────────────────
+      // If the upstream returns text/event-stream, switch to streaming
+      // mode: send headers immediately, then pipe body chunks as they
+      // arrive over separate WebSocket messages.
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.toLowerCase().includes("text/event-stream") && response.body) {
+        clearTimeout(timeout);
+
+        // Send the initial response with headers only (ss: 1 = streaming)
+        const headerPayload: PortProxyResponseMessage = {
+          v: WS_PROTOCOL_VERSION,
+          t: "pv",
+          i: message.i,
+          o: 1,
+          sc: responseStatus,
+          sm: responseStatusText,
+          h: responseHeaders,
+          b: "",
+          ss: 1,
+        };
+        sendJson(ws, headerPayload);
+
+        // Stream body chunks.  Use a longer timeout for SSE streams —
+        // the stream stays open for the lifetime of the EventSource.
+        const SSE_STREAM_TIMEOUT_MS = 300_000; // 5 minutes max
+        const streamController = new AbortController();
+        const streamTimeout = setTimeout(() => {
+          streamController.abort();
+        }, SSE_STREAM_TIMEOUT_MS);
+        streamTimeout.unref();
+
+        // Track this stream so it can be aborted on disconnect
+        activeProxyStreams.set(message.i, streamController);
+
+        try {
+          const reader = response.body.getReader();
+          let done = false;
+          while (!done) {
+            if (ws.readyState !== WebSocket.OPEN) {
+              reader.cancel();
+              break;
+            }
+            const result = await reader.read();
+            if (result.done) {
+              done = true;
+              break;
+            }
+            const chunk: PortProxyStreamChunkMessage = {
+              v: WS_PROTOCOL_VERSION,
+              t: "ps",
+              i: message.i,
+              d: Buffer.from(result.value).toString("base64"),
+            };
+            sendJson(ws, chunk);
+          }
+        } catch {
+          // Stream aborted (timeout, disconnect, upstream close) — expected
+        } finally {
+          clearTimeout(streamTimeout);
+          activeProxyStreams.delete(message.i);
+        }
+
+        const end: PortProxyStreamEndMessage = {
+          v: WS_PROTOCOL_VERSION,
+          t: "pe",
+          i: message.i,
+        };
+        if (ws.readyState === WebSocket.OPEN) {
+          sendJson(ws, end);
+        }
+        return;
+      }
+
+      // ── Standard buffered response ─────────────────────────────────
       const arrayBuffer = await response.arrayBuffer();
       responseBody = Buffer.from(arrayBuffer);
     } finally {

@@ -1,6 +1,6 @@
 export const WS_PROTOCOL_VERSION = 1 as const;
 
-export type WsMessageType = "h1" | "h2" | "p" | "pl" | "dr" | "ds" | "sc" | "sa" | "si" | "st" | "sr" | "sq" | "sv" | "sl" | "pr" | "pv" | "cf" | "cg" | "cu" | "cc" | "cv" | "jk" | "jv" | "sp" | "md" | "mr" | "rd" | "rr" | "rn" | "rp" | "gi" | "gj" | "gk" | "gs" | "ga" | "gt" | "gp" | "gl" | "gm" | "gn" | "gb" | "go" | "gh" | "gd" | "gc" | "gu" | "gx" | "gy" | "gf" | "gv" | "gq" | "e";
+export type WsMessageType = "h1" | "h2" | "p" | "pl" | "dr" | "ds" | "sc" | "sa" | "si" | "st" | "sr" | "sq" | "sv" | "sl" | "pr" | "pv" | "ps" | "pe" | "cf" | "cg" | "cu" | "cc" | "cv" | "jk" | "jv" | "sp" | "md" | "mr" | "rd" | "rr" | "rn" | "rp" | "gi" | "gj" | "gk" | "gs" | "ga" | "gt" | "gp" | "gl" | "gm" | "gn" | "gb" | "go" | "gh" | "gd" | "gc" | "gu" | "gx" | "gy" | "gf" | "gv" | "gq" | "e";
 
 export interface WsEnvelope {
   v: typeof WS_PROTOCOL_VERSION;
@@ -198,6 +198,28 @@ export interface PortProxyResponseMessage {
   h?: ProxyHeaderEntry[];
   b?: string;
   m?: string;
+  /** When 1, the response is a streaming response (e.g. SSE text/event-stream).
+   *  The initial `pv` carries headers only (b is empty); body data follows as
+   *  `ps` (proxy-stream-chunk) messages, terminated by a `pe` (proxy-stream-end). */
+  ss?: 0 | 1;
+}
+
+/** A chunk of streaming proxy response data (sent after a `pv` with `ss: 1`). */
+export interface PortProxyStreamChunkMessage {
+  v: typeof WS_PROTOCOL_VERSION;
+  t: "ps";
+  /** Request ID — matches the original `pr` / `pv` request. */
+  i: number;
+  /** Base64-encoded chunk data. */
+  d: string;
+}
+
+/** Signals the end of a streaming proxy response. */
+export interface PortProxyStreamEndMessage {
+  v: typeof WS_PROTOCOL_VERSION;
+  t: "pe";
+  /** Request ID — matches the original `pr` / `pv` request. */
+  i: number;
 }
 
 export interface SetupStatusRequestMessage {
@@ -563,6 +585,8 @@ export type WsMessage =
   | SessionLogRequestMessage
   | PortProxyRequestMessage
   | PortProxyResponseMessage
+  | PortProxyStreamChunkMessage
+  | PortProxyStreamEndMessage
   | SetupStatusRequestMessage
   | SetupStatusResponseMessage
   | SetupSaveRequestMessage

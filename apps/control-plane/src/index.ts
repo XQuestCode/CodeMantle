@@ -36,6 +36,8 @@ import {
   type PortListMessage,
   type PortProxyRequestMessage,
   type PortProxyResponseMessage,
+  type PortProxyStreamChunkMessage,
+  type PortProxyStreamEndMessage,
   type ProxyHeaderEntry,
   type SessionResultMessage,
   type StartPromptMessage,
@@ -159,6 +161,8 @@ const socketState = new WeakMap<WebSocket, DeviceSocketState>();
 const socketAlive = new WeakMap<WebSocket, boolean>();
 const recentNonces = new Map<string, number>();
 const pendingRequests = new Map<number, PendingRequest>();
+/** Active SSE proxy streams keyed by request ID → { HTTP response, owning device }. */
+const activeProxyStreams = new Map<number, { response: ServerResponse; deviceId: string }>();
 const uiClients = new Set<WebSocket>();
 const uiClientSubscriptions = new WeakMap<WebSocket, UiSubscription>();
 const devicePortOwnership = new Map<string, PortOwnership>();
@@ -496,6 +500,26 @@ function handleIncomingMessage(ws: WebSocket, raw: RawData): void {
     return;
   }
 
+  const streamChunkProxy = parseProxyStreamChunk(payload);
+  if (streamChunkProxy) {
+    const entry = activeProxyStreams.get(streamChunkProxy.i);
+    if (entry && !entry.response.writableEnded) {
+      const chunk = Buffer.from(streamChunkProxy.d, "base64");
+      entry.response.write(chunk);
+    }
+    return;
+  }
+
+  const streamEndProxy = parseProxyStreamEnd(payload);
+  if (streamEndProxy) {
+    const entry = activeProxyStreams.get(streamEndProxy.i);
+    activeProxyStreams.delete(streamEndProxy.i);
+    if (entry && !entry.response.writableEnded) {
+      entry.response.end();
+    }
+    return;
+  }
+
   const errorMessage = parseErrorMessage(payload);
   if (errorMessage) {
     if (errorMessage.i !== undefined) {
@@ -618,6 +642,15 @@ function unregisterSocket(ws: WebSocket): void {
       pending.reject(new ApiError(502, "device disconnected"));
     }
     rejectPendingForDevice(state.deviceId, "device disconnected");
+    // Terminate any active SSE proxy streams belonging to this device.
+    for (const [streamId, entry] of activeProxyStreams.entries()) {
+      if (entry.deviceId === state.deviceId) {
+        activeProxyStreams.delete(streamId);
+        if (!entry.response.writableEnded) {
+          entry.response.end();
+        }
+      }
+    }
     log(`device unregistered: ${state.deviceId} sid=${state.sid}`);
   }
   socketState.delete(ws);
@@ -803,6 +836,12 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const proxyPath = `${pathSuffix}${url.search}`;
       const rawBody = await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
       const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
+
+      // ── SSE streaming ──────────────────────────────────────────────
+      if (proxied.streaming) {
+        startProxyStream(response, proxied, request, deviceId);
+        return;
+      }
 
       const rewrittenBody = rewriteProxiedHtml(proxied.headers, proxied.body, deviceId, port);
 
@@ -1377,6 +1416,10 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
             // the CP's CSP (script-src 'self') blocks eval() and inline scripts
             // used by frameworks such as Vite / OpenCode.
             removeSecurityHeaders(response);
+            if (proxied.streaming) {
+              startProxyStream(response, proxied, request, fallbackDeviceId);
+              return;
+            }
             sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, proxied.body);
             return;
           }
@@ -2092,6 +2135,11 @@ type ProxiedHttpResult = {
   statusText: string;
   headers: ProxyHeaderEntry[];
   body: Buffer;
+  /** When true, the response is an SSE stream — body is empty, chunks arrive
+   *  via "ps" messages keyed by {@link streamRequestId}. */
+  streaming: boolean;
+  /** The request ID used to correlate streaming chunks (only set when streaming). */
+  streamRequestId: number;
 };
 
 async function proxyHttpToDevice(
@@ -2115,17 +2163,23 @@ async function proxyHttpToDevice(
     b: body.length > 0 ? body.toString("base64") : "",
   };
 
+  // For SSE streams, use a much longer timeout — the initial "pv" response
+  // arrives quickly (just headers), but we need to keep the pending request
+  // slot alive long enough for the agent to respond.
   const response = await sendRequest<PortProxyResponseMessage>(deviceId, "pv", message, PORT_PROXY_REQUEST_TIMEOUT_MS);
   if (response.o !== 1) {
     throw new ApiError(502, response.m || "proxy_failed");
   }
 
-  const responseBody = response.b ? Buffer.from(response.b, "base64") : Buffer.alloc(0);
+  const isStreaming = response.ss === 1;
+  const responseBody = isStreaming ? Buffer.alloc(0) : (response.b ? Buffer.from(response.b, "base64") : Buffer.alloc(0));
   return {
     status: response.sc ?? 502,
     statusText: response.sm ?? "proxy",
     headers: response.h ?? [],
     body: responseBody,
+    streaming: isStreaming,
+    streamRequestId: requestId,
   };
 }
 
@@ -2468,6 +2522,56 @@ async function readJsonBody(request: IncomingMessage, maxBytes: number): Promise
   } catch {
     throw new ApiError(400, "invalid_json_body");
   }
+}
+
+/**
+ * Starts an SSE proxy stream: writes status + headers to the client HTTP
+ * response (without ending it) and registers the response in
+ * {@link activeProxyStreams} so that incoming `"ps"` chunks can be piped to the
+ * client.  When the client disconnects, the map entry is cleaned up so that
+ * subsequent chunks are silently dropped.
+ *
+ * Header filtering mirrors {@link sendProxyResponse}: hop-by-hop, cookie, and
+ * security-policy headers are stripped.
+ */
+function startProxyStream(
+  response: ServerResponse,
+  proxied: ProxiedHttpResult,
+  request: IncomingMessage,
+  deviceId: string,
+): void {
+  response.statusCode = proxied.status;
+  response.statusMessage = proxied.statusText;
+  for (const [name, value] of proxied.headers) {
+    const lower = name.toLowerCase();
+    if (
+      lower === "connection"
+      || lower === "transfer-encoding"
+      || lower === "content-length"
+      || lower === "set-cookie"
+      || lower === "content-security-policy"
+      || lower === "content-security-policy-report-only"
+      || lower === "x-frame-options"
+    ) {
+      continue;
+    }
+    response.setHeader(name, value);
+  }
+  // Ensure the response is not buffered — SSE relies on immediate flushing.
+  response.setHeader("cache-control", "no-cache");
+  response.setHeader("x-accel-buffering", "no");
+  response.flushHeaders();
+
+  const streamId = proxied.streamRequestId;
+  activeProxyStreams.set(streamId, { response, deviceId });
+
+  // Clean up when the client disconnects before the stream ends naturally.
+  request.on("close", () => {
+    activeProxyStreams.delete(streamId);
+    if (!response.writableEnded) {
+      response.end();
+    }
+  });
 }
 
 /**
@@ -3296,7 +3400,7 @@ function parsePortProxyResponse(value: unknown): PortProxyResponseMessage | null
   if (!isObject(value)) {
     return null;
   }
-  if (!hasOnlyKeys(value, ["v", "t", "i", "o", "sc", "sm", "h", "b", "m"])) {
+  if (!hasOnlyKeys(value, ["v", "t", "i", "o", "sc", "sm", "h", "b", "m", "ss"])) {
     return null;
   }
   if (value.v !== WS_PROTOCOL_VERSION || value.t !== "pv") {
@@ -3323,7 +3427,45 @@ function parsePortProxyResponse(value: unknown): PortProxyResponseMessage | null
   if (value.m !== undefined && !shortString(value.m, 256)) {
     return null;
   }
+  if (value.ss !== undefined && value.ss !== 0 && value.ss !== 1) {
+    return null;
+  }
   return value as unknown as PortProxyResponseMessage;
+}
+
+function parseProxyStreamChunk(value: unknown): PortProxyStreamChunkMessage | null {
+  if (!isObject(value)) {
+    return null;
+  }
+  if (!hasOnlyKeys(value, ["v", "t", "i", "d"])) {
+    return null;
+  }
+  if (value.v !== WS_PROTOCOL_VERSION || value.t !== "ps") {
+    return null;
+  }
+  if (!isUint32(value.i)) {
+    return null;
+  }
+  if (typeof value.d !== "string") {
+    return null;
+  }
+  return value as unknown as PortProxyStreamChunkMessage;
+}
+
+function parseProxyStreamEnd(value: unknown): PortProxyStreamEndMessage | null {
+  if (!isObject(value)) {
+    return null;
+  }
+  if (!hasOnlyKeys(value, ["v", "t", "i"])) {
+    return null;
+  }
+  if (value.v !== WS_PROTOCOL_VERSION || value.t !== "pe") {
+    return null;
+  }
+  if (!isUint32(value.i)) {
+    return null;
+  }
+  return value as unknown as PortProxyStreamEndMessage;
 }
 
 function isProxyHeaderEntry(value: unknown): value is ProxyHeaderEntry {
