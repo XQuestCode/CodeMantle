@@ -5,7 +5,7 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { realpathSync, readFileSync } from "node:fs";
 import {
   appendFile,
   chmod,
@@ -25,6 +25,7 @@ import { config as loadDotenv, parse as parseDotenv } from "dotenv";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import WebSocket, { type RawData } from "ws";
 import {
   MAX_DIRECTORY_LIMIT,
@@ -92,6 +93,19 @@ import {
 
 loadDotenv();
 
+function resolveAgentVersion(): string {
+  if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
+  if (process.env.npm_package_version) return process.env.npm_package_version;
+  try {
+    const selfDir = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.resolve(selfDir, "..", "package.json");
+    const raw = readFileSync(pkgPath, "utf8");
+    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof pkg.version === "string") return pkg.version;
+  } catch { /* not available in pkg binary without embedded asset */ }
+  return "0.0.0";
+}
+
 let CONTROL_PLANE_URL = "";
 let AGENT_AUTH_TOKEN = "";
 const OPENCODE_BASE_URL = (
@@ -117,7 +131,7 @@ const OPENCODE_READY_CHECK_MS = parseInt(
   10,
 );
 const OPENCODE_COMMAND = process.env.OPENCODE_COMMAND ?? "opencode";
-const AGENT_VERSION = process.env.AGENT_VERSION ?? "0.1.2";
+const AGENT_VERSION = resolveAgentVersion();
 const DEVICE_ID = process.env.DEVICE_ID ?? defaultDeviceId();
 
 const BASE_RECONNECT_MS = parseInt(process.env.RECONNECT_BASE_MS ?? "1000", 10);
@@ -6673,7 +6687,7 @@ async function startDaemon(): Promise<void> {
     REQUEST_TIMEOUT_MS,
   );
   log(
-    `starting daemon root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL} maxFrame=${MAX_FRAME_BYTES} maxProxyResp=${PORT_PROXY_MAX_RESPONSE_BYTES}`,
+    `starting daemon v=${AGENT_VERSION} root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL} maxFrame=${MAX_FRAME_BYTES} maxProxyResp=${PORT_PROXY_MAX_RESPONSE_BYTES}`,
   );
 
   // In UI-box mode, emit a ready event

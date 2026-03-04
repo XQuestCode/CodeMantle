@@ -163,12 +163,14 @@ RUNTIME_MODE=ui-box
     tokio::fs::write(&env_path, env_content).await.map_err(|e| e.to_string())?;
     
     // Start the agent process
+    let app_version = env!("CARGO_PKG_VERSION");
     let mut command = Command::new(&sidecar_path);
     command
         .current_dir(&config.workspace_path)
         .env("CONTROL_PLANE_URL", &config.control_plane_url)
         .env("AGENT_AUTH_TOKEN", &config.auth_token)
         .env("AGENT_PROJECT_ROOT", &config.workspace_path)
+        .env("AGENT_VERSION", app_version)
         .env("RUNTIME_MODE", "ui-box")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -433,6 +435,11 @@ async fn is_first_run(app: AppHandle) -> Result<bool, String> {
     }
 }
 
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 fn get_sidecar_binary_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
@@ -673,6 +680,7 @@ fn main() {
         }
     }));
 
+    log_step(&format!("CodeMantle desktop v{}", env!("CARGO_PKG_VERSION")));
     log_step("main() entered");
 
     log_step("creating tauri builder");
@@ -800,6 +808,7 @@ fn main() {
         check_autostart_status,
         toggle_autostart,
         is_first_run,
+        get_app_version,
     ]);
 
     log_step("calling .run()");

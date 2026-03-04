@@ -829,6 +829,14 @@ input:checked + .slider:before {
   white-space: nowrap;
 }
 
+.settings-version {
+  text-align: center;
+  padding: 12px 0 80px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
 /* Settings sidebar highlight */
 .sidebar-nav {
   margin-top: auto;

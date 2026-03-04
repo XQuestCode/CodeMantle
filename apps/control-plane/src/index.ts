@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile, rename as fsRename, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { config as loadDotenv } from "dotenv";
@@ -124,7 +125,18 @@ const PORT_PROXY_MAX_HEADER_COUNT = parseInt(process.env.PORT_PROXY_MAX_HEADER_C
 const MCP_GATEWAY_BASE_URLS = parseGatewayBaseUrls(process.env.MCP_GATEWAY_BASE_URLS ?? process.env.MCP_GATEWAY_BASE_URL ?? "");
 const AUTH = AuthService.fromEnv(process.env);
 
+function resolvePanelVersion(): string {
+  try {
+    const selfDir = path.dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(path.resolve(selfDir, "..", "package.json"), "utf8");
+    const pkg = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof pkg.version === "string") return pkg.version;
+  } catch { /* ignore */ }
+  return "0.0.0";
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PANEL_VERSION = resolvePanelVersion();
 const PUBLIC_ROOT = path.resolve(__dirname, "../public");
 const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
   "/": { file: "index.html", type: "text/html; charset=utf-8" },
@@ -181,11 +193,11 @@ const uiWss = new WebSocketServer({
 });
 
 wss.on("listening", () => {
-  log(`control-plane websocket listening on ws://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_PORT}`);
+  log(`control-plane v=${PANEL_VERSION} websocket listening on ws://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_PORT}`);
 });
 
 apiServer.listen(CONTROL_PLANE_API_PORT, CONTROL_PLANE_HOST, () => {
-  log(`control-plane api listening on http://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_API_PORT}`);
+  log(`control-plane v=${PANEL_VERSION} api listening on http://${CONTROL_PLANE_HOST}:${CONTROL_PLANE_API_PORT}`);
 });
 
 uiWss.on("connection", (ws, req) => {

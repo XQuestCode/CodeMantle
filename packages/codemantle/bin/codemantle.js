@@ -15,6 +15,12 @@ const PANEL_BIN_SPEC = "@codemantle/panel/bin/codemantle-panel.js";
 
 const args = process.argv.slice(2);
 
+if (args.length === 1 && (args[0] === "--version" || args[0] === "-V")) {
+  const cliVersion = readPackageVersionFromPath(path.resolve(scriptDirectory, "..", "package.json"));
+  process.stdout.write(`codemantle ${cliVersion || "unknown"}\n`);
+  process.exit(0);
+}
+
 if (args.length === 0 || args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
   printHelp();
   process.exit(0);
@@ -196,9 +202,10 @@ function readPackageVersionFromPath(packageJsonPath) {
 }
 
 function printHelp() {
+  const cliVersion = readPackageVersionFromPath(path.resolve(scriptDirectory, "..", "package.json"));
   process.stdout.write(
     [
-      "codemantle",
+      `codemantle v${cliVersion || "unknown"}`,
       "",
       "Unified orchestrator CLI for CodeMantle panel and agent.",
       "",
@@ -208,6 +215,10 @@ function printHelp() {
       "  codemantle panel [panel-args...]",
       "  codemantle agent [agent-args...]",
       "  codemantle setup [all|panel|agent]",
+      "",
+      "Options:",
+      "  --version, -V              Print version and exit",
+      "  --help, -h                 Show this help message",
       "",
       "Defaults:",
       "  codemantle --panel        => codemantle-panel start",

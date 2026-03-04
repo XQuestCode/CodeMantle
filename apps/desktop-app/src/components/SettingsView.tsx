@@ -48,6 +48,7 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
   const [showToken, setShowToken] = useState(false)
   const [showTokenHelp, setShowTokenHelp] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
 
   // Track if config changed from saved version
   const [savedConfig, setSavedConfig] = useState<SetupConfig>(config)
@@ -56,6 +57,13 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   useEffect(() => {
     invoke<boolean>('check_autostart_status')
       .then(setAutostartEnabled)
+      .catch(() => {})
+  }, [])
+
+  // Load app version on mount
+  useEffect(() => {
+    invoke<string>('get_app_version')
+      .then(setAppVersion)
       .catch(() => {})
   }, [])
 
@@ -505,6 +513,12 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
           </button>
         </div>
       </div>
+
+      {appVersion && (
+        <div className="settings-version">
+          <span>CodeMantle v{appVersion}</span>
+        </div>
+      )}
     </div>
   )
 }

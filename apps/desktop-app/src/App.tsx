@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff, Square } from 'lucide-react'
@@ -219,10 +219,11 @@ function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
 }
 
 // Step 3: Pre-flight Status with Autostart Toggle
-function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
+function PreflightStep({ config, setConfig, onNext, onPrev, onAgentConnected }: StepProps & { onAgentConnected: () => void }) {
   const [status, setStatus] = useState<'idle' | 'checking' | 'ready' | 'error'>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [autostartEnabled, setAutostartEnabled] = useState(config.start_on_boot)
+  const hasConnected = useRef(false)
 
   useEffect(() => {
     // Listen for agent logs
@@ -233,6 +234,8 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
     // Listen for connection status
     const unlistenStatus = listen<{connected: boolean; first_time: boolean}>('connection-status', (event) => {
       if (event.payload.connected) {
+        hasConnected.current = true
+        onAgentConnected()
         setStatus('ready')
       } else {
         setStatus('error')
@@ -408,14 +411,16 @@ function PreflightStep({ config, setConfig, onNext, onPrev }: StepProps) {
       )}
 
       <div className="step-actions">
-        <button
-          className="btn-secondary"
-          onClick={onPrev}
-          disabled={status === 'checking' || status === 'ready'}
-        >
-          <ArrowLeft size={20} />
-          Back
-        </button>
+        {!hasConnected.current && (
+          <button
+            className="btn-secondary"
+            onClick={onPrev}
+            disabled={status === 'checking'}
+          >
+            <ArrowLeft size={20} />
+            Back
+          </button>
+        )}
         <button 
           className="btn-primary" 
           onClick={handleFinish}
@@ -460,6 +465,7 @@ function App() {
   const [view, setView] = useState<AppView>('wizard')
   const [currentStep, setCurrentStep] = useState(1)
   const [configLoaded, setConfigLoaded] = useState(false)
+  const [agentConnected, setAgentConnected] = useState(false)
   const [config, setConfig] = useState<SetupConfig>({
     workspace_path: '',
     control_plane_url: 'codemantle.cloud',
@@ -530,8 +536,8 @@ function App() {
                 key={step}
                 type="button"
                 className={`step-row ${step === currentStep ? 'active' : ''} ${step < currentStep ? 'completed' : ''}`}
-                onClick={() => { if (step <= currentStep) setCurrentStep(step) }}
-                disabled={step > currentStep}
+                onClick={() => { if (step <= currentStep && !agentConnected) setCurrentStep(step) }}
+                disabled={step > currentStep || (step < currentStep && agentConnected)}
               >
                 <div className="step-dot">
                   {step < currentStep ? <CheckCircle size={16} /> : step}
@@ -585,7 +591,8 @@ function App() {
                 config={config} 
                 setConfig={setConfig} 
                 onNext={handleWizardComplete} 
-                onPrev={() => setCurrentStep(2)} 
+                onPrev={() => setCurrentStep(2)}
+                onAgentConnected={() => setAgentConnected(true)}
               />
             )}
 
