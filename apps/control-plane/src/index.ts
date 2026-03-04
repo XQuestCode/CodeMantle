@@ -2470,6 +2470,20 @@ async function readJsonBody(request: IncomingMessage, maxBytes: number): Promise
   }
 }
 
+/**
+ * Sends a proxied upstream response to the client.
+ *
+ * Hop-by-hop headers (`connection`, `transfer-encoding`) are always stripped.
+ * `content-length` is recalculated from the (possibly-rewritten) body.
+ * `set-cookie` is stripped because upstream cookies use localhost paths/domains
+ * that don't apply to the CP origin.
+ *
+ * Security-policy headers (`content-security-policy`, `x-frame-options`) are
+ * stripped because they were authored for direct localhost access and break when
+ * served through the CP reverse proxy (e.g. `script-src 'self'` blocks eval()
+ * needed by Vite/OpenCode bundles, `DENY` frame options block embedding).
+ * This is equivalent to nginx's `proxy_hide_header` directive.
+ */
 function sendProxyResponse(
   response: ServerResponse,
   statusCode: number,
@@ -2481,7 +2495,15 @@ function sendProxyResponse(
   response.statusMessage = statusText;
   for (const [name, value] of headers) {
     const lower = name.toLowerCase();
-    if (lower === "connection" || lower === "transfer-encoding" || lower === "content-length" || lower === "set-cookie") {
+    if (
+      lower === "connection"
+      || lower === "transfer-encoding"
+      || lower === "content-length"
+      || lower === "set-cookie"
+      || lower === "content-security-policy"
+      || lower === "content-security-policy-report-only"
+      || lower === "x-frame-options"
+    ) {
       continue;
     }
     response.setHeader(name, value);
