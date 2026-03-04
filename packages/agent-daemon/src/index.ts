@@ -965,6 +965,7 @@ async function handlePortProxyRequest(
       const contentType = response.headers.get("content-type") ?? "";
       if (contentType.toLowerCase().includes("text/event-stream") && response.body) {
         clearTimeout(timeout);
+        log(`SSE stream detected port=${message.p} path=${message.u} reqId=${message.i} status=${responseStatus}`);
 
         // Send the initial response with headers only (ss: 1 = streaming)
         const headerPayload: PortProxyResponseMessage = {
@@ -985,6 +986,7 @@ async function handlePortProxyRequest(
         const SSE_STREAM_TIMEOUT_MS = 300_000; // 5 minutes max
         const streamController = new AbortController();
         const streamTimeout = setTimeout(() => {
+          log(`SSE stream timeout port=${message.p} path=${message.u} reqId=${message.i}`);
           streamController.abort();
         }, SSE_STREAM_TIMEOUT_MS);
         streamTimeout.unref();
@@ -992,19 +994,25 @@ async function handlePortProxyRequest(
         // Track this stream so it can be aborted on disconnect
         activeProxyStreams.set(message.i, streamController);
 
+        let chunkCount = 0;
+        let totalBytes = 0;
         try {
           const reader = response.body.getReader();
           let done = false;
           while (!done) {
             if (ws.readyState !== WebSocket.OPEN) {
+              log(`SSE stream ws closed port=${message.p} path=${message.u} reqId=${message.i} chunks=${chunkCount}`);
               reader.cancel();
               break;
             }
             const result = await reader.read();
             if (result.done) {
               done = true;
+              log(`SSE stream ended port=${message.p} path=${message.u} reqId=${message.i} chunks=${chunkCount} totalBytes=${totalBytes}`);
               break;
             }
+            chunkCount++;
+            totalBytes += result.value.byteLength;
             const chunk: PortProxyStreamChunkMessage = {
               v: WS_PROTOCOL_VERSION,
               t: "ps",
@@ -1013,8 +1021,9 @@ async function handlePortProxyRequest(
             };
             sendJson(ws, chunk);
           }
-        } catch {
-          // Stream aborted (timeout, disconnect, upstream close) — expected
+        } catch (streamError) {
+          const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+          log(`SSE stream error port=${message.p} path=${message.u} reqId=${message.i} chunks=${chunkCount} err=${errMsg}`);
         } finally {
           clearTimeout(streamTimeout);
           activeProxyStreams.delete(message.i);
@@ -1028,6 +1037,7 @@ async function handlePortProxyRequest(
         if (ws.readyState === WebSocket.OPEN) {
           sendJson(ws, end);
         }
+        log(`SSE stream complete port=${message.p} path=${message.u} reqId=${message.i} chunks=${chunkCount} totalBytes=${totalBytes}`);
         return;
       }
 

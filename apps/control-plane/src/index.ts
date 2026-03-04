@@ -506,6 +506,8 @@ function handleIncomingMessage(ws: WebSocket, raw: RawData): void {
     if (entry && !entry.response.writableEnded) {
       const chunk = Buffer.from(streamChunkProxy.d, "base64");
       entry.response.write(chunk);
+    } else {
+      log(`WARN ps chunk reqId=${streamChunkProxy.i} no active stream (found=${activeProxyStreams.has(streamChunkProxy.i)})`);
     }
     return;
   }
@@ -517,6 +519,7 @@ function handleIncomingMessage(ws: WebSocket, raw: RawData): void {
     if (entry && !entry.response.writableEnded) {
       entry.response.end();
     }
+    log(`proxy stream end reqId=${streamEndProxy.i} hadEntry=${!!entry}`);
     return;
   }
 
@@ -2172,6 +2175,9 @@ async function proxyHttpToDevice(
   }
 
   const isStreaming = response.ss === 1;
+  if (isStreaming) {
+    log(`proxy streaming response device=${deviceId} port=${port} path=${requestPath} reqId=${requestId} status=${response.sc}`);
+  }
   const responseBody = isStreaming ? Buffer.alloc(0) : (response.b ? Buffer.from(response.b, "base64") : Buffer.alloc(0));
   return {
     status: response.sc ?? 502,
@@ -2540,6 +2546,7 @@ function startProxyStream(
   request: IncomingMessage,
   deviceId: string,
 ): void {
+  log(`startProxyStream reqId=${proxied.streamRequestId} device=${deviceId} status=${proxied.status} headers=${proxied.headers.length}`);
   response.statusCode = proxied.status;
   response.statusMessage = proxied.statusText;
   for (const [name, value] of proxied.headers) {
@@ -2567,6 +2574,7 @@ function startProxyStream(
 
   // Clean up when the client disconnects before the stream ends naturally.
   request.on("close", () => {
+    log(`proxy stream client disconnect reqId=${streamId} device=${deviceId}`);
     activeProxyStreams.delete(streamId);
     if (!response.writableEnded) {
       response.end();
