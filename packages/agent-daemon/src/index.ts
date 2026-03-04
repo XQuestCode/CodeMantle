@@ -101,11 +101,11 @@ const OPENCODE_PROVIDER_ID = process.env.OPENCODE_PROVIDER_ID ?? "openai";
 const OPENCODE_MODEL_ID = process.env.OPENCODE_MODEL_ID ?? "gpt-5.3-codex";
 const OPENCODE_HOST = process.env.OPENCODE_HOST ?? "127.0.0.1";
 const OPENCODE_START_PORT = parseInt(
-  process.env.OPENCODE_START_PORT ?? "4096",
+  process.env.OPENCODE_START_PORT ?? "10000",
   10,
 );
 const OPENCODE_PORT_SCAN_RANGE = parseInt(
-  process.env.OPENCODE_PORT_SCAN_RANGE ?? "200",
+  process.env.OPENCODE_PORT_SCAN_RANGE ?? "500",
   10,
 );
 const OPENCODE_BOOT_TIMEOUT_MS = parseInt(
@@ -6156,8 +6156,11 @@ async function findAvailablePort(
   host: string,
 ): Promise<number | null> {
   const firstPort = Math.max(1024, startPort);
-  for (let offset = 0; offset < scanRange; offset += 1) {
-    const candidate = firstPort + offset;
+  const maxPort = Math.min(65535, firstPort + scanRange - 1);
+  const effectiveRange = maxPort - firstPort + 1;
+  const randomOffset = Math.floor(Math.random() * effectiveRange);
+  for (let step = 0; step < effectiveRange; step += 1) {
+    const candidate = firstPort + ((randomOffset + step) % effectiveRange);
     const available = await isPortAvailable(candidate, host);
     if (available) {
       return candidate;
