@@ -790,7 +790,7 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const proxyPath = `${pathSuffix}${url.search}`;
       const rawBody = await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
       const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
-      const rewrittenBody = injectProxyBaseHref(proxied.headers, proxied.body, deviceId, port);
+      const rewrittenBody = injectProxyBaseHref(proxied.headers, proxied.body, deviceId, port, pathSuffix);
       sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, rewrittenBody);
       return;
     }
@@ -2410,14 +2410,15 @@ function sendProxyResponse(
   response.end(body);
 }
 
-function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number): Buffer {
+function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number, requestPathSuffix: string): Buffer {
   const contentType = getProxyHeaderValue(headers, "content-type");
   if (!contentType || !contentType.toLowerCase().includes("text/html")) {
     return body;
   }
 
   const proxyPrefix = `/device/${encodeURIComponent(deviceId)}/port/${encodeURIComponent(String(port))}`;
-  const baseHref = `${proxyPrefix}/`;
+  const scopedPrefix = buildScopedProxyPrefix(proxyPrefix, requestPathSuffix);
+  const baseHref = `${scopedPrefix}/`;
   const originalHtml = body.toString("utf8");
   let rewritten = originalHtml;
 
@@ -2426,7 +2427,7 @@ function injectProxyBaseHref(headers: ProxyHeaderEntry[], body: Buffer, deviceId
     rewritten = rewritten.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`);
   }
 
-  rewritten = rewriteRootRelativeHtmlUrls(rewritten, proxyPrefix);
+  rewritten = rewriteRootRelativeHtmlUrls(rewritten, scopedPrefix);
   if (rewritten === originalHtml) {
     return body;
   }
@@ -2440,6 +2441,20 @@ function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string 
   rewritten = rewritten.replace(/(\bcontent=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   return rewritten;
+}
+
+function buildScopedProxyPrefix(proxyPrefix: string, requestPathSuffix: string): string {
+  const cleanSuffix = requestPathSuffix.split("?")[0]?.split("#")[0] ?? "/";
+  const normalized = cleanSuffix.startsWith("/") ? cleanSuffix : `/${cleanSuffix}`;
+  const lastSlash = normalized.lastIndexOf("/");
+  const directory = lastSlash >= 0 ? normalized.slice(0, lastSlash + 1) : "/";
+  const trimmedDirectory = directory.endsWith("/") && directory.length > 1
+    ? directory.slice(0, -1)
+    : directory;
+  if (trimmedDirectory === "/") {
+    return proxyPrefix;
+  }
+  return `${proxyPrefix}${trimmedDirectory}`;
 }
 
 function getProxyHeaderValue(headers: ProxyHeaderEntry[], headerName: string): string | null {
