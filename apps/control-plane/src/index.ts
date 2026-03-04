@@ -789,7 +789,25 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const pathSuffix = proxyMatch[3] ?? "/";
       const proxyPath = `${pathSuffix}${url.search}`;
       const rawBody = await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
-      const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
+      let proxied: ProxiedHttpResult;
+      try {
+        proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
+      } catch (error) {
+        const fallbackPath = buildProxyFallbackPath(deviceId, port, ownership.sessionId, pathSuffix, url.search, request.headers.referer);
+        if (!shouldRetryProxyAssetRequest(method, rawBody, fallbackPath, proxyPath)) {
+          throw error;
+        }
+        proxied = await proxyHttpToDevice(deviceId, port, method, fallbackPath, request.headers, rawBody);
+      }
+
+      const fallbackPath = buildProxyFallbackPath(deviceId, port, ownership.sessionId, pathSuffix, url.search, request.headers.referer);
+      if (shouldRetryProxyStatus(method, rawBody, proxied.status, fallbackPath, proxyPath)) {
+        const fallback = await proxyHttpToDevice(deviceId, port, method, fallbackPath, request.headers, rawBody);
+        if (isProxyFallbackPreferred(proxied.status, fallback.status)) {
+          proxied = fallback;
+        }
+      }
+
       const rewrittenBody = injectProxyBaseHref(proxied.headers, proxied.body, deviceId, port, pathSuffix);
       sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, rewrittenBody);
       return;
@@ -2441,6 +2459,169 @@ function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string 
   rewritten = rewritten.replace(/(\bcontent=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   return rewritten;
+}
+
+function shouldRetryProxyAssetRequest(
+  method: string,
+  body: Buffer,
+  fallbackPath: string | undefined,
+  originalPath: string,
+): fallbackPath is string {
+  if (method !== "GET" && method !== "HEAD") {
+    return false;
+  }
+  if (body.byteLength > 0) {
+    return false;
+  }
+  if (!fallbackPath || fallbackPath === originalPath) {
+    return false;
+  }
+  return true;
+}
+
+function shouldRetryProxyStatus(
+  method: string,
+  body: Buffer,
+  statusCode: number,
+  fallbackPath: string | undefined,
+  originalPath: string,
+): fallbackPath is string {
+  if (!shouldRetryProxyAssetRequest(method, body, fallbackPath, originalPath)) {
+    return false;
+  }
+  return statusCode === 401 || statusCode === 404 || statusCode === 502;
+}
+
+function isProxyFallbackPreferred(primaryStatus: number, fallbackStatus: number): boolean {
+  if (fallbackStatus >= 200 && fallbackStatus < 400) {
+    return true;
+  }
+  if (primaryStatus >= 400 && fallbackStatus < primaryStatus) {
+    return true;
+  }
+  return false;
+}
+
+function buildProxyFallbackPath(
+  deviceId: string,
+  port: number,
+  sessionId: string,
+  pathSuffix: string,
+  search: string,
+  refererHeader: string | string[] | undefined,
+): string | undefined {
+  if (!pathSuffix.startsWith("/") || pathSuffix === "/") {
+    return undefined;
+  }
+
+  const assetPath = pathSuffix.slice(1);
+  if (!assetPath || assetPath.includes("..")) {
+    return undefined;
+  }
+
+  const scopedBase = resolveScopedProxyBasePath(deviceId, port, sessionId, refererHeader);
+  if (!scopedBase || scopedBase === "/") {
+    return undefined;
+  }
+
+  const base = scopedBase.endsWith("/") ? scopedBase : `${scopedBase}/`;
+  return `${base}${assetPath}${search}`;
+}
+
+function resolveScopedProxyBasePath(
+  deviceId: string,
+  port: number,
+  sessionId: string,
+  refererHeader: string | string[] | undefined,
+): string | undefined {
+  const refererValue = readHeaderValue(refererHeader);
+  const fromReferer = deriveScopedPathFromProxiedUrl(refererValue, deviceId, port);
+  if (fromReferer && fromReferer !== "/") {
+    return fromReferer;
+  }
+
+  const fromSession = deriveScopedPathFromKnownSession(deviceId, sessionId, port);
+  if (fromSession && fromSession !== "/") {
+    return fromSession;
+  }
+
+  return undefined;
+}
+
+function readHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") {
+    return value[0];
+  }
+  return undefined;
+}
+
+function deriveScopedPathFromProxiedUrl(rawUrl: string | undefined, deviceId: string, port: number): string | undefined {
+  if (!rawUrl) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(rawUrl, "http://localhost");
+    const match = /^\/device\/([^/]+)\/port\/(\d{1,5})(\/.*)?$/.exec(parsed.pathname);
+    if (!match) {
+      return undefined;
+    }
+    const refererDeviceId = decodeURIComponent(match[1]!);
+    const refererPort = parseInt(match[2]!, 10);
+    if (refererDeviceId !== deviceId || refererPort !== port) {
+      return undefined;
+    }
+    const suffix = match[3] ?? "/";
+    return toDirectoryPath(suffix);
+  } catch {
+    return undefined;
+  }
+}
+
+function deriveScopedPathFromKnownSession(deviceId: string, sessionId: string, port: number): string | undefined {
+  const prefix = `${deviceId}:`;
+  for (const [key, session] of deviceFolderSessions.entries()) {
+    if (!key.startsWith(prefix) || session.sessionId !== sessionId || !session.sessionUrl) {
+      continue;
+    }
+    const parsedPort = extractPortFromSessionUrl(session.sessionUrl);
+    if (!parsedPort || parsedPort !== port) {
+      continue;
+    }
+    const fromProxyUrl = deriveScopedPathFromProxiedUrl(session.sessionUrl, deviceId, port);
+    if (fromProxyUrl && fromProxyUrl !== "/") {
+      return fromProxyUrl;
+    }
+    try {
+      const parsed = new URL(session.sessionUrl, "http://localhost");
+      const pathname = parsed.pathname || "/";
+      const directory = toDirectoryPath(pathname);
+      if (directory !== "/") {
+        return directory;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function toDirectoryPath(pathname: string): string {
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const withoutQuery = normalized.split("?")[0]?.split("#")[0] ?? "/";
+  if (withoutQuery === "/") {
+    return "/";
+  }
+  if (withoutQuery.endsWith("/")) {
+    return withoutQuery.length > 1 ? withoutQuery.slice(0, -1) : "/";
+  }
+  const slashIndex = withoutQuery.lastIndexOf("/");
+  if (slashIndex <= 0) {
+    return "/";
+  }
+  return withoutQuery.slice(0, slashIndex);
 }
 
 function buildScopedProxyPrefix(proxyPrefix: string, requestPathSuffix: string): string {
