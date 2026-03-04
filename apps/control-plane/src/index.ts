@@ -2445,6 +2445,7 @@ function rewriteProxiedHtml(headers: ProxyHeaderEntry[], body: Buffer, deviceId:
 
 function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string {
   let rewritten = html;
+  rewritten = rewritten.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*\/?>/gi, "");
   rewritten = rewritten.replace(/(\b(?:src|href|action|poster)=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   rewritten = rewritten.replace(/(\bcontent=["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
   rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
@@ -3349,7 +3350,7 @@ function sendJson(ws: WebSocket, message: object): void {
 
 function decodeJson(raw: RawData): unknown | null {
   const text = decodeText(raw);
-  if (text === null || text.length > MAX_FRAME_BYTES) {
+  if (text === null) {
     return null;
   }
   try {

@@ -952,6 +952,7 @@ async function handlePortProxyRequest(
       return;
     }
 
+    const b64Body = responseBody.length > 0 ? responseBody.toString("base64") : "";
     const payload: PortProxyResponseMessage = {
       v: WS_PROTOCOL_VERSION,
       t: "pv",
@@ -960,8 +961,11 @@ async function handlePortProxyRequest(
       sc: responseStatus,
       sm: responseStatusText,
       h: responseHeaders,
-      b: responseBody.length > 0 ? responseBody.toString("base64") : "",
+      b: b64Body,
     };
+    if (b64Body.length > 100_000) {
+      log(`proxy response port=${message.p} path=${message.u} status=${responseStatus} rawBytes=${responseBody.byteLength} b64Chars=${b64Body.length}`);
+    }
     sendJson(ws, payload);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "proxy_failed";
@@ -1756,7 +1760,7 @@ function mapFsError(error: unknown): ErrorCode {
 
 function decodeJson(raw: RawData): unknown | null {
   const text = decodeText(raw);
-  if (text === null || text.length > MAX_FRAME_BYTES) {
+  if (text === null) {
     return null;
   }
   try {
@@ -6669,7 +6673,7 @@ async function startDaemon(): Promise<void> {
     REQUEST_TIMEOUT_MS,
   );
   log(
-    `starting daemon root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL}`,
+    `starting daemon root=${ALLOWED_PROJECT_ROOT_REAL} opencode=${OPENCODE_BASE_URL} maxFrame=${MAX_FRAME_BYTES} maxProxyResp=${PORT_PROXY_MAX_RESPONSE_BYTES}`,
   );
 
   // In UI-box mode, emit a ready event
