@@ -93,7 +93,7 @@ const REQUIRED_AGENT_PROTOCOL_VERSION = Number.isInteger(REQUIRED_AGENT_PROTOCOL
   : WS_PROTOCOL_VERSION;
 const HEARTBEAT_SECONDS = parseInt(process.env.HEARTBEAT_SECONDS ?? "25", 10);
 const HANDSHAKE_SKEW_MS = parseInt(process.env.HANDSHAKE_SKEW_MS ?? "30000", 10);
-const MAX_FRAME_BYTES = parseInt(process.env.MAX_FRAME_BYTES ?? "2097152", 10);
+const MAX_FRAME_BYTES = parseInt(process.env.MAX_FRAME_BYTES ?? "25165824", 10);
 const MAX_NONCES = parseInt(process.env.MAX_NONCES ?? "2048", 10);
 const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? "15000", 10);
 const GIT_REQUEST_TIMEOUT_MS = parseInt(process.env.GIT_REQUEST_TIMEOUT_MS ?? "180000", 10);
@@ -118,7 +118,7 @@ const JIT_CREDENTIAL_ENV_ALLOWLIST = parseJitEnvAllowlist(
 );
 const JIT_CREDENTIAL_SIGNING_KEY = (process.env.JIT_CREDENTIAL_SIGNING_KEY ?? "").trim();
 const PORT_PROXY_REQUEST_TIMEOUT_MS = parseInt(process.env.PORT_PROXY_REQUEST_TIMEOUT_MS ?? "20000", 10);
-const PORT_PROXY_MAX_BODY_BYTES = parseInt(process.env.PORT_PROXY_MAX_BODY_BYTES ?? "1048576", 10);
+const PORT_PROXY_MAX_BODY_BYTES = parseInt(process.env.PORT_PROXY_MAX_BODY_BYTES ?? "16777216", 10);
 const PORT_PROXY_MAX_HEADER_COUNT = parseInt(process.env.PORT_PROXY_MAX_HEADER_COUNT ?? "64", 10);
 const MCP_GATEWAY_BASE_URLS = parseGatewayBaseUrls(process.env.MCP_GATEWAY_BASE_URLS ?? process.env.MCP_GATEWAY_BASE_URL ?? "");
 const AUTH = AuthService.fromEnv(process.env);
