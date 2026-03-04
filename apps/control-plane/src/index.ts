@@ -163,6 +163,18 @@ const recentNonces = new Map<string, number>();
 const pendingRequests = new Map<number, PendingRequest>();
 /** Active SSE proxy streams keyed by request ID → { HTTP response, owning device }. */
 const activeProxyStreams = new Map<number, { response: ServerResponse; deviceId: string }>();
+/**
+ * Buffer for streaming chunks that arrive before {@link startProxyStream} has
+ * registered the HTTP response in {@link activeProxyStreams}.  This covers the
+ * race where the agent sends "pv" (headers) and "ps" (first data chunk) so
+ * close together that they land in the same TCP segment and the WS library
+ * dispatches both message events synchronously — before the microtask that
+ * calls startProxyStream has a chance to run.
+ *
+ * Entries are cleaned up when {@link startProxyStream} drains the buffer or
+ * after a short timeout if the stream is never registered (e.g. error path).
+ */
+const earlyStreamChunks = new Map<number, Buffer[]>();
 const uiClients = new Set<WebSocket>();
 const uiClientSubscriptions = new WeakMap<WebSocket, UiSubscription>();
 const devicePortOwnership = new Map<string, PortOwnership>();
@@ -506,8 +518,19 @@ function handleIncomingMessage(ws: WebSocket, raw: RawData): void {
     if (entry && !entry.response.writableEnded) {
       const chunk = Buffer.from(streamChunkProxy.d, "base64");
       entry.response.write(chunk);
-    } else {
-      log(`WARN ps chunk reqId=${streamChunkProxy.i} no active stream (found=${activeProxyStreams.has(streamChunkProxy.i)})`);
+    } else if (!entry) {
+      // Stream not yet registered — buffer the chunk so startProxyStream
+      // can flush it once the HTTP response is ready.  This covers the
+      // race where "pv" and "ps" arrive in the same TCP segment.
+      const buf = earlyStreamChunks.get(streamChunkProxy.i);
+      const chunk = Buffer.from(streamChunkProxy.d, "base64");
+      if (buf) {
+        buf.push(chunk);
+      } else {
+        earlyStreamChunks.set(streamChunkProxy.i, [chunk]);
+        // Safety: clean up if startProxyStream never claims this buffer.
+        setTimeout(() => { earlyStreamChunks.delete(streamChunkProxy.i); }, 10_000);
+      }
     }
     return;
   }
@@ -516,6 +539,7 @@ function handleIncomingMessage(ws: WebSocket, raw: RawData): void {
   if (streamEndProxy) {
     const entry = activeProxyStreams.get(streamEndProxy.i);
     activeProxyStreams.delete(streamEndProxy.i);
+    earlyStreamChunks.delete(streamEndProxy.i);
     if (entry && !entry.response.writableEnded) {
       entry.response.end();
     }
@@ -2269,6 +2293,7 @@ function rejectPendingForDevice(deviceId: string, reason: string): void {
     }
     clearTimeout(pending.timer);
     pendingRequests.delete(requestId);
+    earlyStreamChunks.delete(requestId);
     pending.reject(new ApiError(502, reason));
   }
 }
@@ -2572,10 +2597,24 @@ function startProxyStream(
   const streamId = proxied.streamRequestId;
   activeProxyStreams.set(streamId, { response, deviceId });
 
+  // Flush any chunks that arrived before this registration (race condition
+  // where "pv" and "ps" land in the same TCP segment).
+  const buffered = earlyStreamChunks.get(streamId);
+  if (buffered) {
+    earlyStreamChunks.delete(streamId);
+    for (const chunk of buffered) {
+      if (!response.writableEnded) {
+        response.write(chunk);
+      }
+    }
+    log(`startProxyStream flushed ${buffered.length} early chunks reqId=${streamId}`);
+  }
+
   // Clean up when the client disconnects before the stream ends naturally.
   request.on("close", () => {
     log(`proxy stream client disconnect reqId=${streamId} device=${deviceId}`);
     activeProxyStreams.delete(streamId);
+    earlyStreamChunks.delete(streamId);
     if (!response.writableEnded) {
       response.end();
     }
