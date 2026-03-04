@@ -1371,6 +1371,12 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
             const proxied = await proxyHttpToDevice(
               fallbackDeviceId, fallbackPort, method, fallbackPath, request.headers, rawBody,
             );
+            // Strip the CP's strict security headers that were applied at the
+            // top of handleApiRequest — this is a proxied response and must
+            // pass through the upstream's own headers unmodified.  Without this
+            // the CP's CSP (script-src 'self') blocks eval() and inline scripts
+            // used by frameworks such as Vite / OpenCode.
+            removeSecurityHeaders(response);
             sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, proxied.body);
             return;
           }
@@ -1539,6 +1545,23 @@ function applySecurityHeaders(response: ServerResponse): void {
   if (AUTH.config.secureCookies) {
     response.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
   }
+}
+
+/**
+ * Removes the security headers that {@link applySecurityHeaders} sets.
+ *
+ * Used by the cookie-based fallback proxy: the CP's strict CSP / X-Frame-Options
+ * etc. must not leak onto responses that originate from an upstream server
+ * (e.g. OpenCode / Vite dev server).  The upstream's own headers — if any —
+ * are subsequently applied by {@link sendProxyResponse}.
+ */
+function removeSecurityHeaders(response: ServerResponse): void {
+  response.removeHeader("x-content-type-options");
+  response.removeHeader("x-frame-options");
+  response.removeHeader("referrer-policy");
+  response.removeHeader("permissions-policy");
+  response.removeHeader("content-security-policy");
+  response.removeHeader("strict-transport-security");
 }
 
 function requestDirectory(
