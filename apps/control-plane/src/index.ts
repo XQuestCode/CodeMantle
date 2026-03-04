@@ -805,6 +805,15 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const proxied = await proxyHttpToDevice(deviceId, port, method, proxyPath, request.headers, rawBody);
 
       const rewrittenBody = rewriteProxiedHtml(proxied.headers, proxied.body, deviceId, port);
+
+      // Set fallback-proxy cookie on HTML responses so that root-relative
+      // requests from JS/CSS (e.g. fetch("/global/event"), url("/assets/font.woff2"))
+      // can be routed back to the correct device+port.
+      const proxiedContentType = getProxyHeaderValue(proxied.headers, "content-type");
+      if (proxiedContentType && proxiedContentType.toLowerCase().includes("text/html")) {
+        response.setHeader("set-cookie", `cm_proxy=${encodeURIComponent(deviceId)}:${port}; Path=/; HttpOnly; SameSite=Strict`);
+      }
+
       sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, rewrittenBody);
       return;
     }
@@ -1332,6 +1341,40 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
         const result = await gitConfig(deviceId, rootAlias, requestPath, action, name, email, global, credentialManager);
         sendJsonResponse(response, result.o === 1 ? 200 : 400, result);
         return;
+      }
+    }
+
+    // ── Fallback proxy ─────────────────────────────────────────────────
+    // Requests that "escaped" the proxy prefix (e.g. JS `fetch("/global/event")`,
+    // CSS `url("/assets/font.woff2")`) arrive here without the /device/.../port/...
+    // prefix. If a cm_proxy cookie was set by a prior proxied HTML page load, use
+    // it to route the request to the correct device+port. This is the equivalent
+    // of nginx's transparent proxy_pass — the upstream server's root-relative
+    // URLs just work.
+    //
+    // For POST fallbacks the body stream was already consumed by readJsonBody
+    // above, so only GET/HEAD/OPTIONS/DELETE can be reliably forwarded. POST
+    // requests that don't match a CP route and have the cookie will still 404.
+    const fallbackCookie = cookies["cm_proxy"];
+    if (fallbackCookie && method !== "POST") {
+      const colonIndex = fallbackCookie.lastIndexOf(":");
+      if (colonIndex > 0) {
+        const fallbackDeviceId = decodeURIComponent(fallbackCookie.slice(0, colonIndex));
+        const fallbackPort = parseInt(fallbackCookie.slice(colonIndex + 1), 10);
+        if (Number.isInteger(fallbackPort) && fallbackPort >= 1 && fallbackPort <= 65535) {
+          const ownership = devicePortOwnership.get(fallbackDeviceId);
+          if (ownership && ownership.principalId === auth.subject && deviceRegistry.has(fallbackDeviceId)) {
+            const fallbackPath = `${pathname}${url.search}`;
+            const rawBody = method === "GET" || method === "HEAD"
+              ? Buffer.alloc(0)
+              : await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
+            const proxied = await proxyHttpToDevice(
+              fallbackDeviceId, fallbackPort, method, fallbackPath, request.headers, rawBody,
+            );
+            sendProxyResponse(response, proxied.status, proxied.statusText, proxied.headers, proxied.body);
+            return;
+          }
+        }
       }
     }
 
@@ -2425,19 +2468,15 @@ function sendProxyResponse(
 }
 
 /**
- * Rewrites HTML responses from the upstream OpenCode server so that
- * root-relative asset URLs (e.g. `/assets/index.js`, `/site.webmanifest`)
- * are prefixed with the proxy route for this device+port.
+ * Rewrites HTML responses from the upstream server so that root-relative
+ * asset URLs (e.g. `/assets/index.js`) are prefixed with the proxy route
+ * for this device+port. This is an optimisation that avoids a round-trip
+ * through the cookie-based fallback proxy for initial page assets.
  *
- * OpenCode (Vite-built) serves assets at the server root while session pages
- * live under `/<base64folder>/session/<id>`. The browser sees everything
- * through `/device/<deviceId>/port/<port>/...`, so root-relative paths
- * must be rewritten to include that prefix.
- *
- * A `<base href>` tag is NOT injected because it would also affect relative
- * URLs (e.g. `./api/...`) that are already correct within their directory
- * context. Instead we perform explicit attribute-level rewriting of
- * root-relative URLs only.
+ * Root-relative URLs in external JS/CSS (e.g. `fetch("/global/event")`,
+ * CSS `url("/assets/font.woff2")`) cannot be rewritten here because they
+ * are not part of the HTML. Those are handled by the cookie-based fallback
+ * proxy defined in handleApiRequest (see "Fallback proxy" section).
  */
 function rewriteProxiedHtml(headers: ProxyHeaderEntry[], body: Buffer, deviceId: string, port: number): Buffer {
   const contentType = getProxyHeaderValue(headers, "content-type");
