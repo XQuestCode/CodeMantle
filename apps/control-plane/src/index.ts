@@ -1639,12 +1639,15 @@ function requiresCsrf(method: string, pathname: string): boolean {
  * Returns `true` if `pathname` matches a control-plane POST route.  Requests
  * whose path does NOT match any CP route are destined for the fallback cookie
  * proxy and must NOT be subject to CSRF validation or JSON body parsing.
+ *
+ * NOTE: `/session/` is intentionally excluded — the only CP route under that
+ * prefix is `GET /session/{id}/snapshot`.  OpenCode uses `/session/...` paths
+ * for its own API (e.g. `POST /session/{id}/prompt_async`).
  */
 function isCpPostRoute(pathname: string): boolean {
   if (pathname.startsWith("/config/")) return true;
   if (pathname.startsWith("/auth/")) return true;
   if (pathname.startsWith("/devices/")) return true;
-  if (pathname.startsWith("/session/")) return true;
   return false;
 }
 
