@@ -744,11 +744,18 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       return;
     }
     if (requiresCsrf(method, pathname)) {
-      const csrfHeader = readCsrfHeader(request.headers["x-csrf-token"]);
-      const csrfCookie = cookies[AUTH.config.csrfCookieName];
-      if (!AUTH.isCsrfValid(auth, csrfHeader, csrfCookie)) {
-        sendJsonResponse(response, 403, { error: "csrf_invalid" });
-        return;
+      // CSRF enforcement is deferred for POST requests: the check runs inside
+      // the POST block (after body reading) so that requests destined for the
+      // fallback proxy are not rejected.  Explicit proxy requests (proxyMatch)
+      // are handled before this point and never reach CSRF.  For any other
+      // state-mutating method that might be added in the future, enforce here.
+      if (method !== "POST") {
+        const csrfHeader = readCsrfHeader(request.headers["x-csrf-token"]);
+        const csrfCookie = cookies[AUTH.config.csrfCookieName];
+        if (!AUTH.isCsrfValid(auth, csrfHeader, csrfCookie)) {
+          sendJsonResponse(response, 403, { error: "csrf_invalid" });
+          return;
+        }
       }
     }
 
@@ -893,7 +900,23 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       // Read the raw body once and keep the buffer so it can be forwarded
       // through the fallback proxy if no CP route matches.
       postRawBody = await readRawBody(request, MAX_API_BODY_BYTES);
-      const body = parseJsonFromBuffer(postRawBody);
+
+      // Determine whether this POST targets a CP route.  If it does, enforce
+      // CSRF and parse the JSON body.  If not, skip straight to the fallback
+      // proxy (the raw buffer is forwarded as-is, so non-JSON bodies from
+      // upstream apps are handled correctly).
+      const isCpPost = isCpPostRoute(pathname);
+
+      if (isCpPost) {
+        const csrfHeader = readCsrfHeader(request.headers["x-csrf-token"]);
+        const csrfCookie = cookies[AUTH.config.csrfCookieName];
+        if (!AUTH.isCsrfValid(auth, csrfHeader, csrfCookie)) {
+          sendJsonResponse(response, 403, { error: "csrf_invalid" });
+          return;
+        }
+      }
+
+      const body = isCpPost ? parseJsonFromBuffer(postRawBody) : {};
 
       if (pathname === "/config/mcp") {
         const validated = validateMcpRegistryEntry(body.entry);
@@ -1610,6 +1633,19 @@ function requiresCsrf(method: string, pathname: string): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Returns `true` if `pathname` matches a control-plane POST route.  Requests
+ * whose path does NOT match any CP route are destined for the fallback cookie
+ * proxy and must NOT be subject to CSRF validation or JSON body parsing.
+ */
+function isCpPostRoute(pathname: string): boolean {
+  if (pathname.startsWith("/config/")) return true;
+  if (pathname.startsWith("/auth/")) return true;
+  if (pathname.startsWith("/devices/")) return true;
+  if (pathname.startsWith("/session/")) return true;
+  return false;
 }
 
 function applySecurityHeaders(response: ServerResponse): void {
