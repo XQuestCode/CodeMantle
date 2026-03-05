@@ -35,3 +35,7 @@ mvp-state.md
 PROTOCOL.md
 
 
+.sisyphus/
+.atlas/
+.prometheus/
+.hephaestus/

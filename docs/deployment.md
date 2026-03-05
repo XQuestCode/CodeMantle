@@ -153,3 +153,95 @@ WantedBy=multi-user.target
 - Forward `X-Forwarded-For`/`X-Forwarded-Proto` consistently and enforce HTTPS redirect at edge.
 - Keep host firewall default-deny for inbound except 443 (and SSH from trusted admin IPs).
 - Enable local auth (`AUTH_MODE=local`) and enable MFA (`AUTH_MFA_ENABLED=true`) with owner passkey (`AUTH_OWNER_2FA_PASSKEY`) and per-user passkeys in `AUTH_LOCAL_USERS`.
+
+### Nginx reverse proxy with TLS (Certbot)
+
+The control plane runs two internal servers on localhost:
+- Agent WebSocket server on `CONTROL_PLANE_PORT` (default `8787`) — handles agent daemon tunnel connections
+- HTTP API + UI server on `CONTROL_PLANE_API_PORT` (default `8788`) — serves the web UI, HTTP API, and hosts the UI WebSocket at path `/ws-ui`
+
+Nginx serves as the single public entry point, routing traffic to the correct internal server based on path.
+
+Prerequisites: nginx installed, Certbot installed for Let's Encrypt, DNS A record pointing to the server.
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    server_name codemantle.example.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location /ws {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
+    location /ws-ui {
+        proxy_pass http://127.0.0.1:8788;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        proxy_buffering off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8788;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    listen 443 ssl;
+    # SSL directives managed by Certbot
+    # cert paths at /etc/letsencrypt/live/codemantle.example.com/
+}
+
+server {
+    listen 80;
+    server_name codemantle.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+⚠️ Replace `codemantle.example.com` with your actual domain throughout this config.
+
+#### Client configuration when behind nginx
+
+- Agent daemons must set `CONTROL_PLANE_URL=wss://codemantle.example.com/ws` (the `/ws` path matches the nginx route to port 8787)
+- The desktop app automatically appends `/ws` for non-localhost URLs — users just enter their domain
+- Set `AUTH_COOKIE_SECURE=true` in the control-plane `.env` when TLS is active
+- Keep `CONTROL_PLANE_HOST=127.0.0.1` (the default) so services only accept connections from localhost via nginx — do not bind to `0.0.0.0`
+
+#### Certbot initial setup
+
+```bash
+sudo certbot --nginx -d codemantle.example.com
+```
+
+Note that Certbot will modify the nginx config to add SSL directives. The config above shows the final state after Certbot runs.
+

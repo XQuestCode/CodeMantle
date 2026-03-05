@@ -116,11 +116,17 @@ npx codemantle --agent
 - Path and process boundaries remain daemon-enforced and zero-trust by default.
 
 See:
-
 - `docs/architecture.md`
 - `docs/protocol.md`
 - `docs/security-model.md`
 - `docs/deployment.md`
+
+## Deployment
+
+CodeMantle deploys as a split-plane system with the control plane behind a reverse proxy and agent daemons connecting outbound.
+The panel includes first-run environment setup, PM2/systemd service management, and nginx reverse proxy configuration with TLS.
+
+See [`docs/deployment.md`](docs/deployment.md) for the full deployment guide.
 
 ## Component release matrix
 

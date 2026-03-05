@@ -178,6 +178,36 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+## Reverse proxy
+
+For production deployments, place the panel behind a reverse proxy with TLS termination.
+
+```nginx
+location /ws {
+    proxy_pass http://127.0.0.1:8787;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+location /ws-ui {
+    proxy_pass http://127.0.0.1:8788;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+location / {
+    proxy_pass http://127.0.0.1:8788;
+}
+```
+
+Notes:
+- Set `AUTH_COOKIE_SECURE=true` in your `.env` when using TLS.
+- Agent daemons connect via `CONTROL_PLANE_URL=wss://codemantle.example.com/ws`.
+
+For the full guide with Certbot TLS setup, HTTP→HTTPS redirect, and systemd service management, see the [Deployment guide](https://github.com/XQuestCode/CodeMantle/blob/main/docs/deployment.md).
+
 ## Validation and upgrades
 
 Check env health:
