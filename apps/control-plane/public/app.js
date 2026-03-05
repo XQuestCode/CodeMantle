@@ -444,7 +444,7 @@ function appendNode(parent, node, isRoot = false) {
     select.addEventListener('click', () => {
       const previousPath = state.selectedFolderPath;
       state.selectedFolderPath = node.path;
-      // Reset session when folder changes
+      // Clear session state immediately for responsive UI
       state.sessionId = null;
       state.sessionUrl = null;
       state.isSessionActive = false;
@@ -457,6 +457,8 @@ function appendNode(parent, node, isRoot = false) {
         // Refresh git status for the new folder
         void refreshGitStatus();
       }
+      // Query backend for an active session at this folder and restore if found
+      void recoverSessionForFolder(node.path);
     });
     
     // Context menu
@@ -831,6 +833,11 @@ function restoreSessionState() {
       renderTree();
       updateSessionUI();
     }
+
+    // Verify persisted session is still alive on the backend
+    if (state.selectedDeviceId && state.selectedFolderPath && state.isSessionActive) {
+      void recoverSessionForFolder(state.selectedFolderPath);
+    }
   } catch {
     // ignore persisted state errors
   }
@@ -849,6 +856,36 @@ function persistSessionState() {
 
 function clearSessionState() {
   localStorage.removeItem(STORAGE_KEYS.SESSION_STATE);
+}
+
+async function recoverSessionForFolder(folderPath) {
+  if (!state.selectedDeviceId) return;
+  try {
+    const payload = await apiJson(`/devices/${encodeURIComponent(state.selectedDeviceId)}/session/status`, {
+      method: 'POST',
+      body: { path: folderPath },
+    });
+    // Guard: user may have navigated away while the request was in flight
+    if (state.selectedFolderPath !== folderPath) return;
+    if (payload.o === 1 && payload.u) {
+      state.sessionId = typeof payload.s === 'string' ? payload.s : null;
+      state.sessionUrl = toProxySessionUrl(payload.u);
+      state.isSessionActive = true;
+      state.snapshotHydratedForSession = null;
+      persistSessionState();
+      updateSessionUI();
+    } else if (state.isSessionActive) {
+      // Backend says no active session — clear stale state (e.g. from localStorage)
+      state.sessionId = null;
+      state.sessionUrl = null;
+      state.isSessionActive = false;
+      state.snapshotHydratedForSession = null;
+      clearSessionState();
+      updateSessionUI();
+    }
+  } catch {
+    // Status query failed — leave UI in current state
+  }
 }
 
 // Session Management

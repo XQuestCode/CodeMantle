@@ -1011,7 +1011,7 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       const startMatch = /^\/devices\/([^/]+)\/session\/start$/.exec(pathname);
       if (startMatch) {
         const deviceId = decodeURIComponent(startMatch[1]!);
-        const sessionId = body.sessionId === undefined ? randomToken(18) : readSessionId(body.sessionId);
+        const sessionId = body.sessionId === undefined ? "ses_" + randomToken(14) : readSessionId(body.sessionId);
         const folderPath = readString(body.path, ".");
         const jitCredential = buildSessionJitCredential(body, deviceId, sessionId);
 
