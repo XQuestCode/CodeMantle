@@ -22,6 +22,7 @@ import {
 } from "node:fs/promises";
 import net from "node:net";
 import { config as loadDotenv, parse as parseDotenv } from "dotenv";
+import Enquirer from "enquirer";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -94,6 +95,8 @@ import {
 } from "./provisioner.js";
 
 loadDotenv();
+
+const { prompt } = Enquirer;
 
 function resolveAgentVersion(): string {
   if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
@@ -6730,22 +6733,71 @@ const isUiBoxMode = process.env.RUNTIME_MODE === "ui-box";
 
 async function handleCliSetup(): Promise<void> {
   const provisioner = new Provisioner();
+  const nodeCheck = provisioner.validateNodeVersion(18);
+  if (!nodeCheck.ok) {
+    console.log(`\n⚠️  Node.js ${nodeCheck.current} detected. Minimum required: ${nodeCheck.required}`);
+    console.log("Please upgrade Node.js: https://nodejs.org/");
+    console.log("Or use a version manager: nvm (https://github.com/nvm-sh/nvm) or fnm (https://github.com/Schniz/fnm)");
+    process.exit(1);
+  }
 
   // Probe dependencies first
   console.log("\n📦 Checking dependencies...");
-  const deps = await provisioner.probeDependencies();
+  let deps = await provisioner.probeDependencies();
 
-  const missingDeps = deps.filter((d) => !d.installed);
+  let missingDeps = deps.filter((d) => !d.installed);
   if (missingDeps.length > 0) {
     console.log("\n⚠️  Missing dependencies:");
     for (const dep of missingDeps) {
       console.log(`   - ${dep.type}: ${dep.error || "Not installed"}`);
     }
-    console.log("\nPlease install the missing dependencies and try again.");
-    console.log(
-      "Visit https://codemantle.cloud/docs/setup for installation instructions.",
-    );
-    process.exit(1);
+
+    if (!process.stdin.isTTY) {
+      console.log("\nPlease install the missing dependencies and try again.");
+      console.log(
+        "Visit https://codemantle.cloud/docs/setup for installation instructions.",
+      );
+      process.exit(1);
+    }
+
+    const installPrompt = await prompt<{ install: boolean }>({
+      type: "confirm",
+      name: "install",
+      message: "Would you like to install the missing dependencies? (Y/n)",
+      initial: true,
+    });
+
+    if (!installPrompt.install) {
+      console.log("\nPlease install the missing dependencies and run setup again.");
+      process.exit(1);
+    }
+
+    for (const dep of missingDeps) {
+      if (dep.type === "git") {
+        console.log("\n🔧 Installing Git...");
+        const installed = await provisioner.installGit();
+        console.log(installed ? "✅ Git installation completed." : "❌ Git installation failed.");
+      } else if (dep.type === "opencode") {
+        console.log("\n🔧 Installing OpenCode...");
+        const installed = await provisioner.installOpenCode();
+        console.log(installed ? "✅ OpenCode installation completed." : "❌ OpenCode installation failed.");
+      }
+    }
+
+    console.log("\n🔍 Re-checking dependencies...");
+    deps = await provisioner.probeDependencies();
+    missingDeps = deps.filter((d) => !d.installed);
+    if (missingDeps.length > 0) {
+      console.log("\n❌ Some dependencies are still missing:");
+      for (const dep of missingDeps) {
+        console.log(`   - ${dep.type}: ${dep.error || "Not installed"}`);
+      }
+      console.log("\nPlease complete installation manually and try again.");
+      console.log(
+        "Visit https://codemantle.cloud/docs/setup for installation instructions.",
+      );
+      process.exit(1);
+    }
   }
 
   console.log("✅ All dependencies found:");

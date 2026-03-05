@@ -35,6 +35,22 @@ interface SettingsViewProps {
   onBackToWizard: () => void
 }
 
+interface DependencyInfo {
+  name: string
+  installed: boolean
+  version: string | null
+  path: string | null
+  error: string | null
+}
+
+interface InstallProgress {
+  dependency: string
+  stage: string
+  message: string
+  done: boolean
+  success: boolean
+}
+
 type AgentStatus = 'stopped' | 'running' | 'starting' | 'stopping'
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -50,8 +66,22 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
   const [showTokenHelp, setShowTokenHelp] = useState(false)
   const [appVersion, setAppVersion] = useState('')
 
+  const [depCheckStatus, setDepCheckStatus] = useState<'idle' | 'checking' | 'missing' | 'installing'>('idle')
+  const [deps, setDeps] = useState<DependencyInfo[]>([])
+  const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null)
+
   // Track if config changed from saved version
   const [savedConfig, setSavedConfig] = useState<SetupConfig>(config)
+
+  useEffect(() => {
+    const unlistenProgress = listen<InstallProgress>('dependency-install-progress', (event) => {
+      setInstallProgress(event.payload)
+      if (event.payload.message) {
+        setLogs(prev => [...prev.slice(-500), `[${event.payload.dependency}] ${event.payload.message}`])
+      }
+    })
+    return () => { unlistenProgress.then(f => f()) }
+  }, [])
 
   // Load autostart status on mount
   useEffect(() => {
@@ -226,6 +256,22 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
       }
     }
 
+    // Check dependencies before starting
+    setDepCheckStatus('checking')
+    try {
+      const depResults = await invoke<DependencyInfo[]>('check_dependencies')
+      setDeps(depResults)
+      const missing = depResults.filter(d => !d.installed)
+      if (missing.length > 0) {
+        setDepCheckStatus('missing')
+        return  // Don't start agent — show missing deps UI
+      }
+    } catch (err) {
+      setLogs(prev => [...prev.slice(-500), `Dependency check failed: ${err}`])
+      // Continue anyway — don't block on check failure
+    }
+    setDepCheckStatus('idle')
+
     setAgentStatus('starting')
     setLogs([])
 
@@ -234,6 +280,26 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
     } catch (err) {
       setAgentStatus('stopped')
       setLogs((prev) => [...prev, `Error: ${err}`])
+    }
+  }
+
+  const handleInstallDep = async (name: string) => {
+    setDepCheckStatus('installing')
+    try {
+      await invoke('install_dependency', { name })
+      const results = await invoke<DependencyInfo[]>('check_dependencies')
+      setDeps(results)
+      const stillMissing = results.filter(d => !d.installed)
+      if (stillMissing.length > 0) {
+        setDepCheckStatus('missing')
+      } else {
+        setDepCheckStatus('idle')
+        // Auto-start agent now that deps are resolved
+        void handleStartAgent()
+      }
+    } catch (err) {
+      setDepCheckStatus('missing')
+      setLogs(prev => [...prev.slice(-500), `Failed to install ${name}: ${err}`])
     }
   }
 
@@ -331,6 +397,53 @@ export default function SettingsView({ config, setConfig, onBackToWizard }: Sett
           </div>
         </div>
       </section>
+
+      {/* Dependency Warning */}
+      {depCheckStatus === 'checking' && (
+        <section className="settings-section">
+          <div className="checking-status">
+            <Loader2 className="spin" size={20} />
+            <span>Checking dependencies...</span>
+          </div>
+        </section>
+      )}
+      {depCheckStatus === 'missing' && (
+        <section className="settings-section settings-section-warning">
+          <h3 className="section-title">
+            <AlertCircle size={18} className="error-icon" />
+            Missing Dependencies
+          </h3>
+          <p className="deps-warning-text">The following dependencies are required to run the agent:</p>
+          <div className="deps-list">
+            {deps.map(dep => (
+              <div key={dep.name} className={`dep-item ${dep.installed ? 'dep-installed' : 'dep-missing'}`}>
+                <div className="dep-info">
+                  {dep.installed ? <CheckCircle size={16} className="success-icon" /> : <AlertCircle size={16} className="error-icon" />}
+                  <span className="dep-name">{dep.name}</span>
+                  {dep.installed && dep.version && <span className="dep-version">v{dep.version}</span>}
+                </div>
+                {!dep.installed && (
+                  <button
+                    className="btn-primary btn-sm"
+                    onClick={() => handleInstallDep(dep.name)}
+                    disabled={false}
+                  >
+                    Install
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {depCheckStatus === 'installing' && installProgress && (
+        <section className="settings-section">
+          <div className="checking-status">
+            <Loader2 className="spin" size={20} />
+            <span>Installing {installProgress.dependency}... {installProgress.message}</span>
+          </div>
+        </section>
+      )}
 
       {/* Autostart */}
       <section className="settings-section">

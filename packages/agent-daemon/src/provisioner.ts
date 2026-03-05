@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, writeFile, readFile, access, chmod, unlink, rename } from "node:fs/promises";
+import { mkdir, writeFile, readFile, access, chmod, unlink, rename, rm } from "node:fs/promises";
 import { constants } from "node:fs";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -658,6 +659,374 @@ WantedBy=multi-user.target
   getConfig(): ProvisionerConfig | null {
     return this.config;
   }
+
+  validateNodeVersion(minMajor: number = 18): { ok: boolean; current: string; required: string } {
+    const current = process.version;
+    const majorText = current.startsWith("v")
+      ? (current.slice(1).split(".")[0] ?? "0")
+      : (current.split(".")[0] ?? "0");
+    const major = Number.parseInt(majorText, 10);
+
+    return {
+      ok: Number.isFinite(major) && major >= minMajor,
+      current,
+      required: `>= ${minMajor}`,
+    };
+  }
+
+  async installGit(): Promise<boolean> {
+    this.emitProgress({
+      phase: "install",
+      step: "install_git",
+      status: "running",
+      progress: 0,
+      message: "Installing Git",
+    });
+
+    try {
+      if (process.platform === "win32") {
+        const { code } = await this.execCommand(
+          "winget",
+          ["install", "--id", "Git.Git", "-e", "--source", "winget", "--silent"],
+          120000,
+        );
+        const success = code === 0;
+        this.emitProgress({
+          phase: "install",
+          step: "install_git",
+          status: success ? "success" : "error",
+          progress: 100,
+          message: success ? "Git installed via winget" : "Failed to install Git via winget",
+        });
+        return success;
+      }
+
+      if (process.platform === "darwin") {
+        const { code } = await this.execCommand("brew", ["install", "git"], 120000);
+        const success = code === 0;
+        this.emitProgress({
+          phase: "install",
+          step: "install_git",
+          status: success ? "success" : "error",
+          progress: 100,
+          message: success ? "Git installed via Homebrew" : "Failed to install Git via Homebrew",
+        });
+        return success;
+      }
+
+      if (process.platform === "linux") {
+        this.emitProgress({
+          phase: "install",
+          step: "install_git",
+          status: "running",
+          progress: 50,
+          message: "Trying apt-get install for Git",
+        });
+        const aptResult = await this.execCommand("sudo", ["apt-get", "install", "-y", "git"], 120000);
+        if (aptResult.code === 0) {
+          this.emitProgress({
+            phase: "install",
+            step: "install_git",
+            status: "success",
+            progress: 100,
+            message: "Git installed via apt-get",
+          });
+          return true;
+        }
+
+        this.emitProgress({
+          phase: "install",
+          step: "install_git",
+          status: "running",
+          progress: 75,
+          message: "apt-get failed, trying dnf install for Git",
+        });
+        const dnfResult = await this.execCommand("sudo", ["dnf", "install", "-y", "git"], 120000);
+        const success = dnfResult.code === 0;
+        this.emitProgress({
+          phase: "install",
+          step: "install_git",
+          status: success ? "success" : "error",
+          progress: 100,
+          message: success ? "Git installed via dnf" : "Failed to install Git via apt-get and dnf",
+        });
+        return success;
+      }
+
+      this.emitProgress({
+        phase: "install",
+        step: "install_git",
+        status: "error",
+        progress: 100,
+        message: `Unsupported platform for Git install: ${process.platform}`,
+      });
+      return false;
+    } catch {
+      this.emitProgress({
+        phase: "install",
+        step: "install_git",
+        status: "error",
+        progress: 100,
+        message: "Failed to install Git",
+      });
+      return false;
+    }
+  }
+
+  async installOpenCode(): Promise<boolean> {
+    this.emitProgress({
+      phase: "install",
+      step: "install_opencode",
+      status: "running",
+      progress: 0,
+      message: "Installing OpenCode",
+    });
+
+    try {
+      let packageManagerSuccess = false;
+
+      if (process.platform === "win32") {
+        const { code } = await this.execCommand(
+          "winget",
+          ["install", "-e", "--id", "SST.opencode"],
+          120000,
+        );
+        packageManagerSuccess = code === 0;
+      } else if (process.platform === "darwin") {
+        const { code } = await this.execCommand(
+          "brew",
+          ["install", "anomalyco/tap/opencode"],
+          120000,
+        );
+        packageManagerSuccess = code === 0;
+      } else if (process.platform === "linux") {
+        const { code } = await this.execCommand(
+          "sh",
+          ["-c", "curl -fsSL https://opencode.ai/install | bash"],
+          120000,
+        );
+        packageManagerSuccess = code === 0;
+      }
+
+      if (packageManagerSuccess) {
+        this.emitProgress({
+          phase: "install",
+          step: "install_opencode",
+          status: "success",
+          progress: 100,
+          message: "OpenCode installed via package manager",
+        });
+        return true;
+      }
+
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode",
+        status: "running",
+        progress: 50,
+        message: "Package manager install failed, trying GitHub release",
+      });
+
+      const fallbackSuccess = await this.installOpenCodeFromGitHub();
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode",
+        status: fallbackSuccess ? "success" : "error",
+        progress: 100,
+        message: fallbackSuccess
+          ? "OpenCode installed from GitHub release"
+          : "Failed to install OpenCode",
+      });
+      return fallbackSuccess;
+    } catch {
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode",
+        status: "error",
+        progress: 100,
+        message: "Failed to install OpenCode",
+      });
+      return false;
+    }
+  }
+
+  private async installOpenCodeFromGitHub(): Promise<boolean> {
+    const platformToOs: Record<NodeJS.Platform, string> = {
+      aix: "",
+      android: "",
+      darwin: "darwin",
+      freebsd: "",
+      haiku: "",
+      linux: "linux",
+      openbsd: "",
+      sunos: "",
+      win32: "windows",
+      cygwin: "",
+      netbsd: "",
+    };
+
+    const archToName: Record<string, string> = {
+      x64: "x64",
+      arm64: "arm64",
+      arm: "arm",
+      ia32: "x86",
+    };
+
+    const osName = platformToOs[process.platform];
+    const archName = archToName[process.arch];
+
+    if (!osName || !archName) {
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode_github",
+        status: "error",
+        progress: 100,
+        message: `Unsupported platform/arch: ${process.platform}/${process.arch}`,
+      });
+      return false;
+    }
+
+    const zipName = `opencode-${osName}-${archName}.zip`;
+    const url = `https://github.com/anomalyco/opencode/releases/latest/download/${zipName}`;
+    const tempRoot = path.join(
+      os.tmpdir(),
+      `codemantle-opencode-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const archivePath = path.join(tempRoot, zipName);
+    const extractPath = path.join(tempRoot, "extract");
+
+    this.emitProgress({
+      phase: "install",
+      step: "install_opencode_github",
+      status: "running",
+      progress: 10,
+      message: `Downloading ${zipName} from GitHub`,
+    });
+
+    const downloadFile = async (downloadUrl: string, destination: string, redirects = 0): Promise<void> => {
+      if (redirects > 5) {
+        throw new Error("too many redirects");
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const request = https.get(downloadUrl, (response) => {
+          const statusCode = response.statusCode ?? 0;
+
+          if (statusCode >= 300 && statusCode < 400 && response.headers.location) {
+            response.resume();
+            const redirectUrl = new URL(response.headers.location, downloadUrl).toString();
+            void downloadFile(redirectUrl, destination, redirects + 1).then(resolve).catch(reject);
+            return;
+          }
+
+          if (statusCode !== 200) {
+            response.resume();
+            reject(new Error(`download failed with status ${statusCode}`));
+            return;
+          }
+
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer | string) => {
+            chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+          });
+          response.on("end", () => {
+            void writeFile(destination, Buffer.concat(chunks)).then(resolve).catch(reject);
+          });
+          response.on("error", reject);
+        });
+
+        request.setTimeout(120000, () => {
+          request.destroy(new Error("download timeout"));
+        });
+        request.on("error", reject);
+      });
+    };
+
+    try {
+      await mkdir(tempRoot, { recursive: true });
+      await mkdir(extractPath, { recursive: true });
+      await downloadFile(url, archivePath);
+
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode_github",
+        status: "running",
+        progress: 50,
+        message: "Extracting OpenCode archive",
+      });
+
+      if (process.platform === "win32") {
+        const { code } = await this.execCommand(
+          "powershell",
+          [
+            "-NoProfile",
+            "-Command",
+            `Expand-Archive -Path '${archivePath}' -DestinationPath '${extractPath}' -Force`,
+          ],
+          120000,
+        );
+        if (code !== 0) {
+          return false;
+        }
+      } else {
+        const { code } = await this.execCommand("tar", ["-xf", archivePath, "-C", extractPath], 120000);
+        if (code !== 0) {
+          return false;
+        }
+      }
+
+      const binaryCandidates = process.platform === "win32"
+        ? [
+          path.join(extractPath, "opencode.exe"),
+          path.join(extractPath, "opencode", "opencode.exe"),
+          path.join(extractPath, "bin", "opencode.exe"),
+        ]
+        : [
+          path.join(extractPath, "opencode"),
+          path.join(extractPath, "opencode", "opencode"),
+          path.join(extractPath, "bin", "opencode"),
+        ];
+
+      let sourceBinary: string | null = null;
+      for (const candidate of binaryCandidates) {
+        try {
+          await access(candidate, constants.F_OK);
+          sourceBinary = candidate;
+          break;
+        } catch {
+        }
+      }
+
+      if (!sourceBinary) {
+        return false;
+      }
+
+      const targetDir = path.join(os.homedir(), ".codemantle", "bin");
+      const targetBinary = path.join(targetDir, "opencode");
+      await mkdir(targetDir, { recursive: true });
+      await unlink(targetBinary).catch(() => {});
+      await rename(sourceBinary, targetBinary);
+
+      if (process.platform !== "win32") {
+        await chmod(targetBinary, 0o755);
+      }
+
+      this.emitProgress({
+        phase: "install",
+        step: "install_opencode_github",
+        status: "running",
+        progress: 90,
+        message: "Verifying OpenCode binary",
+      });
+
+      const { code } = await this.execCommand(targetBinary, ["--version"], 10000);
+      return code === 0;
+    } catch {
+      return false;
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+    }
+  }
 }
 
 export async function runSetupWizard(mode: RuntimeMode = "headless"): Promise<ProvisionerConfig> {
@@ -678,4 +1047,12 @@ export async function runUiBoxSetupFromTauri(
 ): Promise<ProvisionerConfig> {
   const provisioner = new Provisioner();
   return provisioner.runUiBoxSetup(workspacePath, controlPlaneUrl, authToken, startOnBoot);
+}
+
+export async function runDependencyInstall(type: DependencyType): Promise<boolean> {
+  const provisioner = new Provisioner();
+  if (type === "git") {
+    return provisioner.installGit();
+  }
+  return provisioner.installOpenCode();
 }

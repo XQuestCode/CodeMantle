@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff, Square } from 'lucide-react'
+import { Folder, Settings, CheckCircle, Loader2, Terminal, ArrowRight, ArrowLeft, Monitor, Info, Eye, EyeOff, Square, AlertCircle } from 'lucide-react'
 import './App.css'
 import { useAutoUpdater } from './updater'
 import Logo from './components/ui/Logo'
@@ -24,6 +24,22 @@ interface StepProps {
 }
 
 type AppView = 'wizard' | 'settings'
+
+interface DependencyInfo {
+  name: string
+  installed: boolean
+  version: string | null
+  path: string | null
+  error: string | null
+}
+
+interface InstallProgress {
+  dependency: string
+  stage: string
+  message: string
+  done: boolean
+  success: boolean
+}
 
 // Step 1: Workspace Folder Picker
 function WorkspaceStep({ config, setConfig, onNext, isLoading }: StepProps) {
@@ -220,9 +236,11 @@ function ConnectionStep({ config, setConfig, onNext, onPrev }: StepProps) {
 
 // Step 3: Pre-flight Status with Autostart Toggle
 function PreflightStep({ config, setConfig, onNext, onPrev, onAgentConnected }: StepProps & { onAgentConnected: () => void }) {
-  const [status, setStatus] = useState<'idle' | 'checking' | 'ready' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'checking-deps' | 'deps-missing' | 'installing-dep' | 'checking' | 'ready' | 'error'>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [autostartEnabled, setAutostartEnabled] = useState(config.start_on_boot)
+  const [deps, setDeps] = useState<DependencyInfo[]>([])
+  const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null)
   const hasConnected = useRef(false)
 
   useEffect(() => {
@@ -249,23 +267,76 @@ function PreflightStep({ config, setConfig, onNext, onPrev, onAgentConnected }: 
       setLogs(prev => [...prev, `Agent process exited with code ${event.payload}`])
     })
 
+    const unlistenProgress = listen<InstallProgress>('dependency-install-progress', (event) => {
+      setInstallProgress(event.payload)
+      if (event.payload.message) {
+        setLogs(prev => [...prev, `[${event.payload.dependency}] ${event.payload.message}`])
+      }
+    })
+
     return () => {
       unlisten.then(f => f())
       unlistenStatus.then(f => f())
       unlistenExit.then(f => f())
+      unlistenProgress.then(f => f())
     }
   }, [])
 
-  const handleStartAgent = async () => {
-    setStatus('checking')
+  const checkDependencies = async () => {
+    setStatus('checking-deps')
     setLogs([])
-    
     try {
-      await invoke('start_agent_daemon', { config })
+      const results = await invoke<DependencyInfo[]>('check_dependencies')
+      setDeps(results)
+      const missing = results.filter(d => !d.installed)
+      if (missing.length > 0) {
+        setStatus('deps-missing')
+      } else {
+        // All deps found, proceed to start agent
+        setStatus('checking')
+        try {
+          await invoke('start_agent_daemon', { config })
+        } catch (err) {
+          setStatus('error')
+          setLogs(prev => [...prev, `Error: ${err}`])
+        }
+      }
     } catch (err) {
       setStatus('error')
-      setLogs(prev => [...prev, `Error: ${err}`])
+      setLogs(prev => [...prev, `Failed to check dependencies: ${err}`])
     }
+  }
+
+  const installDependency = async (name: string) => {
+    setStatus('installing-dep')
+    setInstallProgress({ dependency: name, stage: 'starting', message: `Installing ${name}...`, done: false, success: false })
+    try {
+      await invoke('install_dependency', { name })
+      // Re-check all dependencies after install
+      const results = await invoke<DependencyInfo[]>('check_dependencies')
+      setDeps(results)
+      const stillMissing = results.filter(d => !d.installed)
+      if (stillMissing.length > 0) {
+        setStatus('deps-missing')
+      } else {
+        setStatus('checking')
+        try {
+          await invoke('start_agent_daemon', { config })
+        } catch (err) {
+          setStatus('error')
+          setLogs(prev => [...prev, `Error: ${err}`])
+        }
+      }
+      setInstallProgress(null)
+    } catch (err) {
+      setInstallProgress(null)
+      setStatus('deps-missing')
+      setLogs(prev => [...prev, `Failed to install ${name}: ${err}`])
+    }
+  }
+
+  const handleStartAgent = async () => {
+    await checkDependencies()
   }
 
   const handleStopAgent = async () => {
@@ -339,6 +410,54 @@ function PreflightStep({ config, setConfig, onNext, onPrev, onAgentConnected }: 
 
       {/* Connection Test */}
       <div className="preflight-actions">
+        {status === 'checking-deps' && (
+          <div className="checking-status">
+            <Loader2 className="spin" size={24} />
+            <span>Checking dependencies...</span>
+          </div>
+        )}
+
+        {status === 'deps-missing' && (
+          <div className="deps-missing-container">
+            <div className="deps-status-header">
+              <AlertCircle size={20} className="error-icon" />
+              <span>Missing dependencies detected</span>
+            </div>
+            <div className="deps-list">
+              {deps.map(dep => (
+                <div key={dep.name} className={`dep-item ${dep.installed ? 'dep-installed' : 'dep-missing'}`}>
+                  <div className="dep-info">
+                    {dep.installed ? <CheckCircle size={16} className="success-icon" /> : <AlertCircle size={16} className="error-icon" />}
+                    <span className="dep-name">{dep.name}</span>
+                    {dep.installed && dep.version && <span className="dep-version">v{dep.version}</span>}
+                  </div>
+                  {!dep.installed && (
+                    <button
+                      className="btn-primary btn-sm"
+                      onClick={() => installDependency(dep.name)}
+                      disabled={false}
+                    >
+                      Install
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {deps.every(d => d.installed) && (
+              <button className="btn-primary" onClick={() => checkDependencies()}>
+                Continue
+              </button>
+            )}
+          </div>
+        )}
+
+        {status === 'installing-dep' && installProgress && (
+          <div className="checking-status">
+            <Loader2 className="spin" size={24} />
+            <span>Installing {installProgress.dependency}... {installProgress.message}</span>
+          </div>
+        )}
+
         {status === 'idle' && (
           <button className="btn-primary btn-large" onClick={handleStartAgent}>
             <Terminal size={20} />

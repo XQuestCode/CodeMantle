@@ -4,7 +4,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::Write;
-use tauri::{Manager, Emitter, Runtime, State, AppHandle, WindowEvent};
+use tauri::{Manager, Emitter, State, AppHandle, WindowEvent};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::async_runtime::{self, Mutex};
@@ -19,12 +19,12 @@ use tauri_plugin_dialog::DialogExt;
 
 struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
+    #[cfg(target_os = "windows")]
+    agent_job: Arc<Mutex<Option<isize>>>,
     is_connected: Arc<AtomicBool>,
     agent_alive: Arc<AtomicBool>,
     /// Set to true when the agent logs "handshake complete" (real WS connection).
     ws_connected: Arc<AtomicBool>,
-    /// Set to true when the agent detects another daemon is already running.
-    existing_daemon: Arc<AtomicBool>,
     first_connection_registered: Arc<AtomicBool>,
 }
 
@@ -40,6 +40,198 @@ struct SetupConfig {
 struct ConnectionStatus {
     connected: bool,
     first_time: bool,
+}
+
+async fn kill_orphaned_daemon() {
+    let lock_path = std::env::temp_dir().join("codemantle-agent-daemon.lock.json");
+    let lock_content = match tokio::fs::read_to_string(&lock_path).await {
+        Ok(content) => content,
+        Err(_) => return,
+    };
+
+    let lock_json: serde_json::Value = match serde_json::from_str(&lock_content) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            log_step(&format!("failed to parse daemon lock file: {}", e));
+            let _ = tokio::fs::remove_file(&lock_path).await;
+            log_step("cleaned up stale lock file");
+            return;
+        }
+    };
+
+    let Some(pid_raw) = lock_json.get("pid").and_then(|v| v.as_u64()) else {
+        let _ = tokio::fs::remove_file(&lock_path).await;
+        log_step("cleaned up stale lock file");
+        return;
+    };
+
+    let Ok(pid) = u32::try_from(pid_raw) else {
+        let _ = tokio::fs::remove_file(&lock_path).await;
+        log_step("cleaned up stale lock file");
+        return;
+    };
+
+    if pid == 0 {
+        let _ = tokio::fs::remove_file(&lock_path).await;
+        log_step("cleaned up stale lock file");
+        return;
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut alive = is_pid_alive_windows(pid);
+    #[cfg(not(target_os = "windows"))]
+    let mut alive = is_pid_alive_unix(pid).await;
+
+    if alive {
+        log_step(&format!("killing orphaned daemon pid={}", pid));
+        #[cfg(target_os = "windows")]
+        {
+            if !kill_pid_windows(pid) {
+                log_step(&format!("failed to terminate orphaned daemon pid={}", pid));
+            }
+            alive = is_pid_alive_windows(pid);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if !kill_pid_unix(pid).await {
+                log_step(&format!("failed to terminate orphaned daemon pid={}", pid));
+            }
+            alive = is_pid_alive_unix(pid).await;
+        }
+    }
+
+    if !alive {
+        let _ = tokio::fs::remove_file(&lock_path).await;
+        log_step("cleaned up stale lock file");
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_pid_alive_windows(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle == 0 {
+            return false;
+        }
+        CloseHandle(handle);
+        true
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn kill_pid_windows(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    };
+
+    unsafe {
+        let handle = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        );
+        if handle == 0 {
+            return false;
+        }
+        let ok = TerminateProcess(handle, 1) != 0;
+        CloseHandle(handle);
+        ok
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn is_pid_alive_unix(pid: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .status()
+        .await
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn kill_pid_unix(pid: u32) -> bool {
+    let _ = Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .status()
+        .await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    if !is_pid_alive_unix(pid).await {
+        return true;
+    }
+
+    let _ = Command::new("kill")
+        .arg("-KILL")
+        .arg(pid.to_string())
+        .status()
+        .await;
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    !is_pid_alive_unix(pid).await
+}
+
+#[cfg(target_os = "windows")]
+async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    if pid == 0 {
+        return Err("Agent process pid is invalid".to_string());
+    }
+
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job == 0 {
+            return Err("Failed to create Windows Job Object".to_string());
+        }
+
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+        let configured = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &limits as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if configured == 0 {
+            CloseHandle(job);
+            return Err("Failed to configure Windows Job Object".to_string());
+        }
+
+        let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if process == 0 {
+            CloseHandle(job);
+            return Err(format!("Failed to open child process handle for pid {}", pid));
+        }
+
+        let assigned = AssignProcessToJobObject(job, process);
+        CloseHandle(process);
+        if assigned == 0 {
+            CloseHandle(job);
+            return Err(format!("Failed to assign child pid {} to Job Object", pid));
+        }
+
+        let mut job_guard = state.agent_job.lock().await;
+        if let Some(existing_job) = job_guard.take() {
+            CloseHandle(existing_job);
+        }
+        *job_guard = Some(job);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -136,6 +328,14 @@ async fn start_agent_daemon_inner(
     if agent_process.is_some() {
         return Err("Agent daemon is already running".to_string());
     }
+    drop(agent_process);
+
+    kill_orphaned_daemon().await;
+
+    let mut agent_process = state.agent_process.lock().await;
+    if agent_process.is_some() {
+        return Err("Agent daemon is already running".to_string());
+    }
 
     // Validate workspace path
     if is_filesystem_root(&config.workspace_path) {
@@ -172,6 +372,7 @@ RUNTIME_MODE=ui-box
         .env("AGENT_PROJECT_ROOT", &config.workspace_path)
         .env("AGENT_VERSION", app_version)
         .env("RUNTIME_MODE", "ui-box")
+        .kill_on_drop(true)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -182,22 +383,27 @@ RUNTIME_MODE=ui-box
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let child = command
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to start agent: {}", e))?;
     
     let pid = child.id().unwrap_or(0);
+
+    #[cfg(target_os = "windows")]
+    if let Err(e) = attach_process_to_job(state, pid).await {
+        let _ = child.kill().await;
+        return Err(e);
+    }
+
     *agent_process = Some(child);
 
-    // Mark agent as alive, reset ws_connected and existing_daemon flags
+    // Mark agent as alive and reset ws_connected
     state.agent_alive.store(true, Ordering::SeqCst);
     state.ws_connected.store(false, Ordering::SeqCst);
-    state.existing_daemon.store(false, Ordering::SeqCst);
     
-    // Spawn stdout reader — parses for "handshake complete" and "another daemon" detection
+    // Spawn stdout reader — parses for "handshake complete"
     let app_clone = app.clone();
     let ws_connected_stdout = state.ws_connected.clone();
-    let existing_daemon_stdout = state.existing_daemon.clone();
     if let Some(stdout) = agent_process.as_mut().unwrap().stdout.take() {
         let reader = BufReader::new(stdout);
         async_runtime::spawn(async move {
@@ -206,10 +412,6 @@ RUNTIME_MODE=ui-box
                 // Detect successful WebSocket handshake from agent logs
                 if line.contains("handshake complete") {
                     ws_connected_stdout.store(true, Ordering::SeqCst);
-                }
-                // Detect "another daemon is already running" — existing daemon is handling things
-                if line.contains("another daemon is already running") {
-                    existing_daemon_stdout.store(true, Ordering::SeqCst);
                 }
                 app_clone.emit("agent-log", format!("[stdout] {}", line)).ok();
             }
@@ -235,8 +437,6 @@ RUNTIME_MODE=ui-box
     let agent_alive = state.agent_alive.clone();
     let ws_connected_exit = state.ws_connected.clone();
     let is_connected = state.is_connected.clone();
-    let existing_daemon_exit = state.existing_daemon.clone();
-    let first_registered_exit = state.first_connection_registered.clone();
     let app_clone = app.clone();
     async_runtime::spawn(async move {
         // Poll until the process exits
@@ -249,30 +449,6 @@ RUNTIME_MODE=ui-box
                         // Process has exited
                         let code = exit_status.code().unwrap_or(-1);
                         *guard = None;
-
-                        // Special case: another daemon is already running and process
-                        // exited cleanly (code 0). The existing daemon is already
-                        // connected, so treat this as a successful connection.
-                        if code == 0 && existing_daemon_exit.load(Ordering::SeqCst) {
-                            agent_alive.store(false, Ordering::SeqCst);
-                            // Keep is_connected true — the existing daemon handles it
-                            is_connected.store(true, Ordering::SeqCst);
-                            ws_connected_exit.store(true, Ordering::SeqCst);
-
-                            if !first_registered_exit.load(Ordering::SeqCst) {
-                                first_registered_exit.store(true, Ordering::SeqCst);
-                            }
-
-                            app_clone.emit("agent-log", format!(
-                                "[system] Another agent daemon is already running (exit code {}). Using existing connection.",
-                                code
-                            )).ok();
-                            app_clone.emit("connection-status", ConnectionStatus {
-                                connected: true,
-                                first_time: false,
-                            }).ok();
-                            break;
-                        }
 
                         agent_alive.store(false, Ordering::SeqCst);
                         ws_connected_exit.store(false, Ordering::SeqCst);
@@ -381,6 +557,19 @@ async fn stop_agent_daemon_inner(
         state.agent_alive.store(false, Ordering::SeqCst);
         state.ws_connected.store(false, Ordering::SeqCst);
         state.is_connected.store(false, Ordering::SeqCst);
+
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::Foundation::CloseHandle;
+
+            let mut agent_job = state.agent_job.lock().await;
+            if let Some(job) = agent_job.take() {
+                unsafe {
+                    CloseHandle(job);
+                }
+            }
+        }
+
         Ok(())
     } else {
         Err("Agent daemon is not running".to_string())
@@ -438,6 +627,542 @@ async fn is_first_run(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct DependencyInfo {
+    name: String,
+    installed: bool,
+    version: Option<String>,
+    path: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct InstallProgress {
+    dependency: String,
+    stage: String,
+    message: String,
+    done: bool,
+    success: bool,
+}
+
+/// Extract a version number like "2.43.0" or "0.5.1" from a string.
+/// Finds the first occurrence of `\d+\.\d+(\.\d+)?` without needing a regex crate.
+fn extract_version_number(text: &str) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        // Find a digit that starts a version-like pattern
+        if chars[i].is_ascii_digit() {
+            let start = i;
+            // Consume digits (major)
+            while i < len && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            // Require a dot
+            if i < len && chars[i] == '.' {
+                i += 1;
+                // Require at least one digit (minor)
+                if i < len && chars[i].is_ascii_digit() {
+                    while i < len && chars[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                    // Optional third segment (.patch)
+                    if i < len && chars[i] == '.' {
+                        let dot_pos = i;
+                        i += 1;
+                        if i < len && chars[i].is_ascii_digit() {
+                            while i < len && chars[i].is_ascii_digit() {
+                                i += 1;
+                            }
+                        } else {
+                            // Dot not followed by digit — don't include it
+                            i = dot_pos;
+                        }
+                    }
+                    return Some(chars[start..i].iter().collect());
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Probe a single command by running `<cmd> --version` and optionally `where`/`which` to find its path.
+async fn probe_command(name: &str) -> DependencyInfo {
+    let version_result = Command::new(name)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+
+    match version_result {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let combined = format!("{}{}", stdout, stderr);
+
+            // Extract version number (e.g. "2.43.0" or "0.5.1") without regex dependency
+            let version = extract_version_number(&combined);
+
+            // Find binary path
+            let path_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
+            let path = Command::new(path_cmd)
+                .arg(name)
+                .output()
+                .await
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            DependencyInfo {
+                name: name.to_string(),
+                installed: true,
+                version,
+                path,
+                error: None,
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            DependencyInfo {
+                name: name.to_string(),
+                installed: false,
+                version: None,
+                path: None,
+                error: Some(if stderr.is_empty() {
+                    format!("Exit code {}", output.status.code().unwrap_or(-1))
+                } else {
+                    stderr.trim().to_string()
+                }),
+            }
+        }
+        Err(e) => DependencyInfo {
+            name: name.to_string(),
+            installed: false,
+            version: None,
+            path: None,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+#[tauri::command]
+async fn check_dependencies() -> Result<Vec<DependencyInfo>, String> {
+    let (git_info, opencode_info) = tokio::join!(
+        probe_command("git"),
+        probe_command("opencode"),
+    );
+    Ok(vec![git_info, opencode_info])
+}
+
+/// Install a dependency using platform-specific package managers.
+/// Emits `dependency-install-progress` events to the frontend.
+#[tauri::command]
+async fn install_dependency(
+    app: AppHandle,
+    name: String,
+) -> Result<(), String> {
+    let dep_name = name.clone();
+    let emit_progress = move |stage: &str, message: &str, done: bool, success: bool| {
+        let _ = app.emit("dependency-install-progress", InstallProgress {
+            dependency: dep_name.clone(),
+            stage: stage.to_string(),
+            message: message.to_string(),
+            done,
+            success,
+        });
+    };
+
+    match name.as_str() {
+        "git" => install_git(&emit_progress).await,
+        "opencode" => install_opencode(&emit_progress).await,
+        _ => Err(format!("Unknown dependency: {}", name)),
+    }
+}
+
+async fn install_git(
+    emit: &dyn Fn(&str, &str, bool, bool),
+) -> Result<(), String> {
+    emit("starting", "Installing git...", false, false);
+
+    #[cfg(target_os = "windows")]
+    {
+        emit("downloading", "Installing git via winget...", false, false);
+        let output = Command::new("winget")
+            .args(["install", "--id", "Git.Git", "-e", "--source", "winget", "--silent", "--accept-package-agreements", "--accept-source-agreements"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run winget: {}. Please install git manually from https://git-scm.com", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let combined = format!("{}\n{}", stdout, stderr);
+
+            // winget may fail if already installed — check
+            if combined.contains("already installed") || combined.contains("No applicable update found") {
+                emit("complete", "Git is already installed", true, true);
+                return Ok(());
+            }
+
+            emit("error", &format!("winget install failed: {}", combined.trim()), true, false);
+            return Err(format!("Failed to install git via winget: {}", combined.trim()));
+        }
+
+        emit("complete", "Git installed successfully via winget", true, true);
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        emit("downloading", "Installing git via Homebrew...", false, false);
+        let output = Command::new("brew")
+            .args(["install", "git"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run brew: {}. Please install Homebrew first (https://brew.sh) or install git manually.", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            emit("error", &format!("brew install failed: {}", stderr.trim()), true, false);
+            return Err(format!("Failed to install git via Homebrew: {}", stderr.trim()));
+        }
+
+        emit("complete", "Git installed successfully via Homebrew", true, true);
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Try apt-get first (Debian/Ubuntu), then dnf (Fedora), then yum
+        emit("downloading", "Installing git via package manager...", false, false);
+
+        let apt_output = Command::new("sudo")
+            .args(["apt-get", "install", "-y", "git"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await;
+
+        if let Ok(output) = apt_output {
+            if output.status.success() {
+                emit("complete", "Git installed successfully via apt-get", true, true);
+                return Ok(());
+            }
+        }
+
+        let dnf_output = Command::new("sudo")
+            .args(["dnf", "install", "-y", "git"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await;
+
+        if let Ok(output) = dnf_output {
+            if output.status.success() {
+                emit("complete", "Git installed successfully via dnf", true, true);
+                return Ok(());
+            }
+        }
+
+        emit("error", "Could not install git. Please install manually: sudo apt-get install git", true, false);
+        return Err("Failed to install git via apt-get or dnf. Please install manually.".to_string());
+    }
+
+    #[allow(unreachable_code)]
+    {
+        emit("error", "Unsupported platform for automatic git installation", true, false);
+        Err("Unsupported platform for automatic git installation".to_string())
+    }
+}
+
+async fn install_opencode(
+    emit: &dyn Fn(&str, &str, bool, bool),
+) -> Result<(), String> {
+    emit("starting", "Installing opencode...", false, false);
+
+    #[cfg(target_os = "windows")]
+    {
+        emit("downloading", "Installing opencode via winget...", false, false);
+        let output = Command::new("winget")
+            .args(["install", "-e", "--id", "SST.opencode", "--silent", "--accept-package-agreements", "--accept-source-agreements"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run winget: {}", e))?;
+
+        if output.status.success() {
+            emit("complete", "OpenCode installed successfully via winget", true, true);
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let combined = format!("{}\n{}", stdout, stderr);
+
+        if combined.contains("already installed") || combined.contains("No applicable update found") {
+            emit("complete", "OpenCode is already installed", true, true);
+            return Ok(());
+        }
+
+        // Fallback: try downloading binary directly from GitHub releases
+        emit("downloading", "winget failed, downloading opencode binary from GitHub...", false, false);
+        return install_opencode_from_github(emit).await;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        emit("downloading", "Installing opencode via Homebrew...", false, false);
+        let output = Command::new("brew")
+            .args(["install", "anomalyco/tap/opencode"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run brew: {}", e))?;
+
+        if output.status.success() {
+            emit("complete", "OpenCode installed successfully via Homebrew", true, true);
+            return Ok(());
+        }
+
+        // Fallback to GitHub binary download
+        emit("downloading", "Homebrew failed, downloading opencode binary from GitHub...", false, false);
+        return install_opencode_from_github(emit).await;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Use the official install script
+        emit("downloading", "Installing opencode via install script...", false, false);
+        let output = Command::new("bash")
+            .args(["-c", "curl -fsSL https://opencode.ai/install | bash"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run install script: {}", e))?;
+
+        if output.status.success() {
+            emit("complete", "OpenCode installed successfully", true, true);
+            return Ok(());
+        }
+
+        // Fallback to GitHub binary download
+        emit("downloading", "Install script failed, downloading opencode binary from GitHub...", false, false);
+        return install_opencode_from_github(emit).await;
+    }
+
+    #[allow(unreachable_code)]
+    {
+        emit("error", "Unsupported platform for automatic opencode installation", true, false);
+        Err("Unsupported platform".to_string())
+    }
+}
+
+/// Download opencode binary directly from GitHub releases into ~/.codemantle/bin/
+async fn install_opencode_from_github(
+    emit: &dyn Fn(&str, &str, bool, bool),
+) -> Result<(), String> {
+    let (os_name, ext) = if cfg!(target_os = "windows") {
+        ("windows", ".exe")
+    } else if cfg!(target_os = "macos") {
+        ("darwin", "")
+    } else {
+        ("linux", "")
+    };
+
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+
+    let asset_name = format!("opencode-{}-{}{}", os_name, arch, ext);
+    let zip_name = format!("opencode-{}-{}.zip", os_name, arch);
+
+    emit("downloading", &format!("Downloading {} from GitHub releases...", asset_name), false, false);
+
+    // Resolve install directory
+    let home = dirs_next_home();
+    let bin_dir = std::path::PathBuf::from(&home).join(".codemantle").join("bin");
+    tokio::fs::create_dir_all(&bin_dir).await.map_err(|e| format!("Failed to create bin dir: {}", e))?;
+
+    let binary_path = bin_dir.join(format!("opencode{}", ext));
+
+    // Try downloading the zip from latest release
+    let download_url = format!(
+        "https://github.com/anomalyco/opencode/releases/latest/download/{}",
+        zip_name
+    );
+
+    let zip_path = bin_dir.join(&zip_name);
+
+    // Use curl/powershell to download (available on all platforms without extra deps)
+    #[cfg(target_os = "windows")]
+    {
+        let download_output = Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                &format!(
+                    "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
+                    download_url,
+                    zip_path.display()
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to download opencode: {}", e))?;
+
+        if !download_output.status.success() {
+            let stderr = String::from_utf8_lossy(&download_output.stderr);
+            emit("error", &format!("Download failed: {}", stderr.trim()), true, false);
+            return Err(format!("Failed to download opencode: {}", stderr.trim()));
+        }
+
+        // Extract zip
+        emit("installing", "Extracting opencode...", false, false);
+        let extract_output = Command::new("powershell")
+            .args([
+                "-NoProfile", "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    zip_path.display(),
+                    bin_dir.display()
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to extract: {}", e))?;
+
+        if !extract_output.status.success() {
+            let stderr = String::from_utf8_lossy(&extract_output.stderr);
+            emit("error", &format!("Extraction failed: {}", stderr.trim()), true, false);
+            return Err(format!("Failed to extract opencode: {}", stderr.trim()));
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let download_output = Command::new("curl")
+            .args(["-fsSL", "-o", &zip_path.to_string_lossy(), &download_url])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to download opencode: {}", e))?;
+
+        if !download_output.status.success() {
+            let stderr = String::from_utf8_lossy(&download_output.stderr);
+            emit("error", &format!("Download failed: {}", stderr.trim()), true, false);
+            return Err(format!("Failed to download opencode: {}", stderr.trim()));
+        }
+
+        // Extract zip
+        emit("installing", "Extracting opencode...", false, false);
+        let extract_output = Command::new("unzip")
+            .args(["-o", &zip_path.to_string_lossy(), "-d", &bin_dir.to_string_lossy()])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to extract: {}", e))?;
+
+        if !extract_output.status.success() {
+            let stderr = String::from_utf8_lossy(&extract_output.stderr);
+            emit("error", &format!("Extraction failed: {}", stderr.trim()), true, false);
+            return Err(format!("Failed to extract opencode: {}", stderr.trim()));
+        }
+
+        // Make executable
+        let _ = Command::new("chmod")
+            .args(["+x", &binary_path.to_string_lossy()])
+            .output()
+            .await;
+    }
+
+    // Clean up zip file
+    let _ = tokio::fs::remove_file(&zip_path).await;
+
+    // Verify the binary works
+    let verify = Command::new(&binary_path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+
+    match verify {
+        Ok(output) if output.status.success() => {
+            emit("complete", &format!("OpenCode installed to {}", binary_path.display()), true, true);
+            Ok(())
+        }
+        _ => {
+            emit("error", "Downloaded binary failed verification. Please install opencode manually.", true, false);
+            Err("OpenCode binary verification failed".to_string())
+        }
+    }
+}
+
+/// Get the user's home directory path as a String.
+fn dirs_next_home() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var("USERPROFILE")
+            .unwrap_or_else(|_| std::env::var("HOMEDRIVE").unwrap_or_default() + &std::env::var("HOMEPATH").unwrap_or_default())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
+    }
+}
+
+/// Get the resolved path to the opencode binary (checks ~/.codemantle/bin/ first, then PATH).
+#[tauri::command]
+async fn get_opencode_binary_path() -> Result<Option<String>, String> {
+    // Check custom install location first
+    let home = dirs_next_home();
+    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let custom_path = std::path::PathBuf::from(&home)
+        .join(".codemantle")
+        .join("bin")
+        .join(format!("opencode{}", ext));
+
+    if tokio::fs::metadata(&custom_path).await.is_ok() {
+        // Verify it runs
+        let output = Command::new(&custom_path)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await;
+
+        if let Ok(o) = output {
+            if o.status.success() {
+                return Ok(Some(custom_path.to_string_lossy().to_string()));
+            }
+        }
+    }
+
+    // Check PATH
+    let info = probe_command("opencode").await;
+    Ok(info.path)
 }
 
 fn get_sidecar_binary_name() -> &'static str {
@@ -713,10 +1438,11 @@ fn main() {
     log_step("adding managed state");
     let builder = builder.manage(AppState {
         agent_process: Arc::new(Mutex::new(None)),
+        #[cfg(target_os = "windows")]
+        agent_job: Arc::new(Mutex::new(None)),
         is_connected: Arc::new(AtomicBool::new(false)),
         agent_alive: Arc::new(AtomicBool::new(false)),
         ws_connected: Arc::new(AtomicBool::new(false)),
-        existing_daemon: Arc::new(AtomicBool::new(false)),
         first_connection_registered: Arc::new(AtomicBool::new(false)),
     });
 
@@ -809,14 +1535,46 @@ fn main() {
         toggle_autostart,
         is_first_run,
         get_app_version,
+        check_dependencies,
+        install_dependency,
+        get_opencode_binary_path,
     ]);
 
-    log_step("calling .run()");
-    match builder.run(tauri::generate_context!()) {
-        Ok(_) => log_step("app exited normally"),
+    log_step("calling .build() and .run()");
+    match builder.build(tauri::generate_context!()) {
+        Ok(app) => {
+            app.run(|app_handle, event| {
+                if let tauri::RunEvent::Exit = event {
+                    let state = app_handle.state::<AppState>();
+                    let agent_proc = state.agent_process.clone();
+                    #[cfg(target_os = "windows")]
+                    let agent_job = state.agent_job.clone();
+
+                    tauri::async_runtime::block_on(async move {
+                        let mut guard = agent_proc.lock().await;
+                        if let Some(mut child) = guard.take() {
+                            let _ = child.kill().await;
+                        }
+
+                        #[cfg(target_os = "windows")]
+                        {
+                            use windows_sys::Win32::Foundation::CloseHandle;
+
+                            let mut job_guard = agent_job.lock().await;
+                            if let Some(job) = job_guard.take() {
+                                unsafe {
+                                    CloseHandle(job);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+            log_step("app exited normally");
+        }
         Err(e) => {
             let err_msg = e.to_string();
-            log_step(&format!("app .run() returned error: {}", err_msg));
+            log_step(&format!("app .build() returned error: {}", err_msg));
 
             // Detect WebView2 missing — the most common cause of instant crash on Windows
             let is_webview2_error = err_msg.contains("WebView2")

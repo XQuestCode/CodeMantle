@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { check } from '@tauri-apps/plugin-updater'
 
@@ -24,51 +24,70 @@ export function useAutoUpdater(): UpdaterState {
     hasPendingRestart: false,
   })
 
+  // Guards: prevent concurrent checks, duplicate dialogs, and re-checks after install
+  const busyRef = useRef(false)
+  const installedRef = useRef(false)
+  const dialogOpenRef = useRef(false)
+
   useEffect(() => {
     let cancelled = false
     const mode = resolveUpdaterMode()
 
     const checkForUpdates = async () => {
+      // Skip if already checking, dialog is open, or update was already installed
+      if (busyRef.current || dialogOpenRef.current || installedRef.current) return
+
+      busyRef.current = true
       setState(prev => ({ ...prev, checking: true }))
       try {
         const update = await check()
+        if (cancelled) return
+
         if (!update) {
-          if (!cancelled) {
-            setState(prev => ({ ...prev, checking: false, message: '' }))
-          }
+          setState(prev => ({ ...prev, checking: false, message: '' }))
           return
         }
 
         if (mode === 'prompt') {
-          const shouldInstall = await ask(
-            `CodeMantle ${update.version} is available. Download and install now?`,
-            { title: 'Update Available', kind: 'info' },
-          )
+          dialogOpenRef.current = true
+          let shouldInstall = false
+          try {
+            shouldInstall = await ask(
+              `CodeMantle ${update.version} is available. Download and install now?`,
+              { title: 'Update Available', kind: 'info' },
+            )
+          } finally {
+            dialogOpenRef.current = false
+          }
+
+          if (cancelled) return
+
           if (!shouldInstall) {
-            if (!cancelled) {
-              setState({
-                checking: false,
-                message: `Update ${update.version} is available`,
-                hasPendingRestart: false,
-              })
-            }
+            setState({
+              checking: false,
+              message: `Update ${update.version} available — install from Settings or restart.`,
+              hasPendingRestart: false,
+            })
             return
           }
         }
 
         await update.downloadAndInstall()
         if (!cancelled) {
+          installedRef.current = true
           setState({
             checking: false,
             message: `Update ${update.version} installed. Restart the app to apply it.`,
             hasPendingRestart: true,
           })
         }
-      } catch (error) {
+      } catch {
+        // Silently swallow update check failures — don't spam the banner
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'Update check failed'
-          setState(prev => ({ ...prev, checking: false, message }))
+          setState(prev => ({ ...prev, checking: false }))
         }
+      } finally {
+        busyRef.current = false
       }
     }
 
