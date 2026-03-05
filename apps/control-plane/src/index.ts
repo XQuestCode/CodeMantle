@@ -884,8 +884,16 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
       return;
     }
 
+    // For POST requests, read the raw body up-front so it can be forwarded
+    // through the fallback proxy if no CP route matches.  For other methods
+    // this stays undefined (the fallback proxy reads the stream itself).
+    let postRawBody: Buffer | undefined;
+
     if (method === "POST") {
-      const body = await readJsonBody(request, MAX_API_BODY_BYTES);
+      // Read the raw body once and keep the buffer so it can be forwarded
+      // through the fallback proxy if no CP route matches.
+      postRawBody = await readRawBody(request, MAX_API_BODY_BYTES);
+      const body = parseJsonFromBuffer(postRawBody);
 
       if (pathname === "/config/mcp") {
         const validated = validateMcpRegistryEntry(body.entry);
@@ -1412,17 +1420,17 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
 
     // ── Fallback proxy ─────────────────────────────────────────────────
     // Requests that "escaped" the proxy prefix (e.g. JS `fetch("/global/event")`,
-    // CSS `url("/assets/font.woff2")`) arrive here without the /device/.../port/...
-    // prefix. If a cm_proxy cookie was set by a prior proxied HTML page load, use
-    // it to route the request to the correct device+port. This is the equivalent
-    // of nginx's transparent proxy_pass — the upstream server's root-relative
-    // URLs just work.
+    // CSS `url("/assets/font.woff2")`, or `POST /session`) arrive here without
+    // the /device/.../port/... prefix. If a cm_proxy cookie was set by a prior
+    // proxied HTML page load, use it to route the request to the correct
+    // device+port. This is the equivalent of nginx's transparent proxy_pass —
+    // the upstream server's root-relative URLs just work.
     //
-    // For POST fallbacks the body stream was already consumed by readJsonBody
-    // above, so only GET/HEAD/OPTIONS/DELETE can be reliably forwarded. POST
-    // requests that don't match a CP route and have the cookie will still 404.
+    // For POST requests the raw body was already read into `postRawBody` above
+    // (before CP route matching), so we reuse it here instead of re-reading
+    // the consumed stream.
     const fallbackCookie = cookies["cm_proxy"];
-    if (fallbackCookie && method !== "POST") {
+    if (fallbackCookie) {
       const colonIndex = fallbackCookie.lastIndexOf(":");
       if (colonIndex > 0) {
         const fallbackDeviceId = decodeURIComponent(fallbackCookie.slice(0, colonIndex));
@@ -1431,9 +1439,10 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
           const ownership = devicePortOwnership.get(fallbackDeviceId);
           if (ownership && ownership.principalId === auth.subject && deviceRegistry.has(fallbackDeviceId)) {
             const fallbackPath = `${pathname}${url.search}`;
-            const rawBody = method === "GET" || method === "HEAD"
-              ? Buffer.alloc(0)
-              : await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES);
+            const rawBody = postRawBody
+              ?? (method === "GET" || method === "HEAD"
+                ? Buffer.alloc(0)
+                : await readRawBody(request, PORT_PROXY_MAX_BODY_BYTES));
             const proxied = await proxyHttpToDevice(
               fallbackDeviceId, fallbackPort, method, fallbackPath, request.headers, rawBody,
             );
@@ -2540,6 +2549,10 @@ function mintJitCredentialToken(deviceId: string, sessionId: string, scope: stri
 
 async function readJsonBody(request: IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
   const rawBuffer = await readRawBody(request, maxBytes);
+  return parseJsonFromBuffer(rawBuffer);
+}
+
+function parseJsonFromBuffer(rawBuffer: Buffer): Record<string, unknown> {
   if (rawBuffer.length === 0) {
     return {};
   }
@@ -2690,12 +2703,50 @@ function rewriteProxiedHtml(headers: ProxyHeaderEntry[], body: Buffer, deviceId:
   return Buffer.from(rewritten, "utf8");
 }
 
+/**
+ * Rewrites a proxied HTML page so that it works correctly when served through
+ * the `/device/{id}/port/{port}/…` reverse-proxy prefix.
+ *
+ * Two transformations are applied:
+ *
+ * 1. **`history.replaceState` injection** — A tiny inline script is inserted at
+ *    the very start of `<head>` (before any framework JS) that strips the proxy
+ *    prefix from `window.location`.  This makes client-side routers (React
+ *    Router, Vue Router, etc.) see the original path the upstream server
+ *    intended (e.g. `/session/abc` instead of `/device/dev_X/port/1234/session/abc`).
+ *    Subsequent navigation and `fetch()` calls use root-relative paths that the
+ *    cookie-based fallback proxy transparently forwards.
+ *
+ * 2. **Manifest link removal** — `<link rel="manifest">` tags are stripped
+ *    because their root-relative URLs would not resolve through the proxy and
+ *    cause console warnings.
+ */
 function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string {
   let rewritten = html;
+  // Remove manifest links (root-relative, would 404 or reference wrong origin).
   rewritten = rewritten.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*\/?>/gi, "");
-  rewritten = rewritten.replace(/(\b(?:src|href|action|poster)=["'])\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
-  rewritten = rewritten.replace(/(\bcontent=["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
-  rewritten = rewritten.replace(/(url\(\s*["']?)\/(?!\/|device\/)/gi, `$1${proxyPrefix}/`);
+
+  // Inject a history.replaceState call that removes the proxy prefix from the
+  // browser's address bar.  This MUST run before any framework JavaScript so
+  // that client-side routers read the intended pathname.  We escape the prefix
+  // into a JSON string so that special characters (%, :, etc.) are safe inside
+  // the inline script.
+  const escapedPrefix = JSON.stringify(proxyPrefix);
+  const historyScript =
+    `<script>` +
+    `(function(){` +
+    `var p=${escapedPrefix};` +
+    `if(location.pathname.indexOf(p)===0){` +
+    `history.replaceState(null,"",location.pathname.slice(p.length)||"/")` +
+    `}` +
+    `})();` +
+    `</script>`;
+  // Insert right after <head> (or <head ...>) so it executes first.
+  const headInserted = rewritten.replace(/(<head\b[^>]*>)/i, `$1${historyScript}`);
+  if (headInserted !== rewritten) {
+    rewritten = headInserted;
+  }
+
   return rewritten;
 }
 
