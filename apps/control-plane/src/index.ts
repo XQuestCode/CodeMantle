@@ -153,6 +153,33 @@ const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
   "/logo-128.png": { file: "logo-128.png", type: "image/png" },
 };
 
+const PUBLIC_STATIC_PATHS: Record<string, { file: string; type: string }> = {
+  "/site.webmanifest": { file: "site.webmanifest", type: "application/manifest+json; charset=utf-8" },
+  "/favicon.ico": { file: "favicon.ico", type: "image/x-icon" },
+  "/favicon-v3.ico": { file: "favicon-v3.ico", type: "image/x-icon" },
+  "/favicon-v3.svg": { file: "favicon-v3.svg", type: "image/svg+xml" },
+  "/favicon-96x96-v3.png": { file: "favicon-96x96-v3.png", type: "image/png" },
+};
+
+const PUBLIC_STATIC_EXTENSIONS: Record<string, string> = {
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".wasm": "application/wasm",
+  ".txt": "text/plain; charset=utf-8",
+};
+
 const validTokens = parseValidTokens(process.env.VALID_TOKENS ?? "");
 const validTokenByKeyId = buildTokenKeyIdMap(validTokens);
 const deviceRegistry = new Map<string, WebSocket>();
@@ -731,6 +758,12 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
           return;
         }
         await sendStaticAsset(response, staticAsset.file, staticAsset.type);
+        return;
+      }
+
+      const publicStaticAsset = resolvePublicStaticAsset(pathname);
+      if (publicStaticAsset) {
+        await sendStaticAsset(response, publicStaticAsset.file, publicStaticAsset.type);
         return;
       }
     }
@@ -2868,11 +2901,69 @@ function sendDirectoryError(response: ServerResponse, error: unknown): void {
 
 async function sendStaticAsset(response: ServerResponse, fileName: string, contentType: string): Promise<void> {
   const filePath = path.join(PUBLIC_ROOT, fileName);
-  const body = await readFile(filePath);
+  let body: Buffer;
+  try {
+    body = await readFile(filePath);
+  } catch (error) {
+    if (
+      error instanceof Error
+      && "code" in error
+      && (error as NodeJS.ErrnoException).code !== undefined
+      && ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR")
+    ) {
+      sendJsonResponse(response, 404, { error: "not_found" });
+      return;
+    }
+    throw error;
+  }
   response.statusCode = 200;
   response.setHeader("content-type", contentType);
   response.setHeader("content-length", body.byteLength);
   response.end(body);
+}
+
+function resolvePublicStaticAsset(pathname: string): { file: string; type: string } | null {
+  const direct = PUBLIC_STATIC_PATHS[pathname];
+  if (direct) {
+    return direct;
+  }
+
+  if (!pathname.startsWith("/assets/")) {
+    return null;
+  }
+
+  const relativePath = pathname.slice(1);
+  if (!isSafePublicRelativePath(relativePath)) {
+    return null;
+  }
+
+  const extension = path.extname(relativePath).toLowerCase();
+  const contentType = PUBLIC_STATIC_EXTENSIONS[extension];
+  if (!contentType) {
+    return null;
+  }
+
+  return {
+    file: relativePath,
+    type: contentType,
+  };
+}
+
+function isSafePublicRelativePath(relativePath: string): boolean {
+  if (!relativePath || relativePath.includes("\\") || relativePath.includes("\u0000")) {
+    return false;
+  }
+
+  const normalized = path.posix.normalize(relativePath);
+  if (!normalized.startsWith("assets/")) {
+    return false;
+  }
+
+  if (normalized === "assets" || normalized.startsWith("../") || normalized.includes("/../") || normalized.includes("/./")) {
+    return false;
+  }
+
+  return true;
 }
 
 function parseHandshakeInit(value: unknown): HandshakeInitMessage | null {
