@@ -191,7 +191,7 @@ async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String>
         return Err("Agent process pid is invalid".to_string());
     }
 
-    unsafe {
+    let job_value = unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
         if job.is_null() {
             return Err("Failed to create Windows Job Object".to_string());
@@ -224,12 +224,16 @@ async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String>
             return Err(format!("Failed to assign child pid {} to Job Object", pid));
         }
 
-        let mut job_guard = state.agent_job.lock().await;
-        if let Some(existing_job) = job_guard.take() {
+        job as usize
+    };
+
+    let mut job_guard = state.agent_job.lock().await;
+    if let Some(existing_job) = job_guard.take() {
+        unsafe {
             CloseHandle(existing_job as windows_sys::Win32::Foundation::HANDLE);
         }
-        *job_guard = Some(job as usize);
     }
+    *job_guard = Some(job_value);
 
     Ok(())
 }
@@ -323,7 +327,7 @@ async fn start_agent_daemon_inner(
     state: &AppState,
     config: SetupConfig,
 ) -> Result<(), String> {
-    let mut agent_process = state.agent_process.lock().await;
+    let agent_process = state.agent_process.lock().await;
     
     if agent_process.is_some() {
         return Err("Agent daemon is already running".to_string());
@@ -378,7 +382,6 @@ RUNTIME_MODE=ui-box
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
