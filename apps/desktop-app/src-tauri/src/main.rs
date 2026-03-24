@@ -20,7 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
     #[cfg(target_os = "windows")]
-    agent_job: Arc<Mutex<Option<windows_sys::Win32::Foundation::HANDLE>>>,
+    agent_job: Arc<Mutex<Option<usize>>>,
     is_connected: Arc<AtomicBool>,
     agent_alive: Arc<AtomicBool>,
     /// Set to true when the agent logs "handshake complete" (real WS connection).
@@ -226,9 +226,9 @@ async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String>
 
         let mut job_guard = state.agent_job.lock().await;
         if let Some(existing_job) = job_guard.take() {
-            CloseHandle(existing_job);
+            CloseHandle(existing_job as windows_sys::Win32::Foundation::HANDLE);
         }
-        *job_guard = Some(job);
+        *job_guard = Some(job as usize);
     }
 
     Ok(())
@@ -315,7 +315,7 @@ async fn start_agent_daemon(
     state: State<'_, AppState>,
     config: SetupConfig,
 ) -> Result<(), String> {
-    start_agent_daemon_inner(app, &state, config).await
+    start_agent_daemon_inner(app, state.inner(), config).await
 }
 
 async fn start_agent_daemon_inner(
@@ -544,7 +544,7 @@ RUNTIME_MODE=ui-box
 async fn stop_agent_daemon(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    stop_agent_daemon_inner(&state).await
+    stop_agent_daemon_inner(state.inner()).await
 }
 
 async fn stop_agent_daemon_inner(
@@ -565,7 +565,7 @@ async fn stop_agent_daemon_inner(
             let mut agent_job = state.agent_job.lock().await;
             if let Some(job) = agent_job.take() {
                 unsafe {
-                    CloseHandle(job);
+                    CloseHandle(job as windows_sys::Win32::Foundation::HANDLE);
                 }
             }
         }
@@ -1318,7 +1318,7 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
                         // Load saved config and start the agent
                         if let Ok(Some(config)) = load_config_from_disk(&app_handle).await {
                             let state = app_handle.state::<AppState>();
-                            match start_agent_daemon_inner(app_handle.clone(), &state, config).await {
+                            match start_agent_daemon_inner(app_handle.clone(), state.inner(), config).await {
                                 Ok(()) => {
                                     app_handle.emit("agent-log", "[system] Agent started from tray".to_string()).ok();
                                 }
@@ -1335,7 +1335,7 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
                     let app_handle = app.clone();
                     async_runtime::spawn(async move {
                         let state = app_handle.state::<AppState>();
-                        match stop_agent_daemon_inner(&state).await {
+                        match stop_agent_daemon_inner(state.inner()).await {
                             Ok(()) => {
                                 app_handle.emit("agent-log", "[system] Agent stopped from tray".to_string()).ok();
                             }
@@ -1355,7 +1355,7 @@ fn setup_tray(app: &AppHandle) -> Result<TrayIcon<tauri::Wry>, Box<dyn std::erro
                     let app_handle = app.clone();
                     async_runtime::spawn(async move {
                         let state = app_handle.state::<AppState>();
-                        let _ = stop_agent_daemon_inner(&state).await;
+                        let _ = stop_agent_daemon_inner(state.inner()).await;
                         app_handle.exit(0);
                     });
                 }
@@ -1491,7 +1491,7 @@ fn main() {
                 match load_config_from_disk(&app_handle).await {
                     Ok(Some(config)) => {
                         let state = app_handle.state::<AppState>();
-                        match start_agent_daemon_inner(app_handle.clone(), &state, config).await {
+                        match start_agent_daemon_inner(app_handle.clone(), state.inner(), config).await {
                             Ok(()) => {
                                 log_step("auto-start: agent daemon started successfully");
                                 app_handle.emit("agent-log", "[system] Agent auto-started on boot".to_string()).ok();
@@ -1548,9 +1548,9 @@ fn main() {
             app.run(|app_handle, event| {
                 if let tauri::RunEvent::Exit = event {
                     let state = app_handle.state::<AppState>();
-                    let agent_proc = state.agent_process.clone();
+                    let agent_proc = state.inner().agent_process.clone();
                     #[cfg(target_os = "windows")]
-                    let agent_job = state.agent_job.clone();
+                    let agent_job = state.inner().agent_job.clone();
 
                     tauri::async_runtime::block_on(async move {
                         let mut guard = agent_proc.lock().await;
@@ -1565,7 +1565,7 @@ fn main() {
                             let mut job_guard = agent_job.lock().await;
                             if let Some(job) = job_guard.take() {
                                 unsafe {
-                                    CloseHandle(job);
+                                    CloseHandle(job as windows_sys::Win32::Foundation::HANDLE);
                                 }
                             }
                         }
