@@ -20,7 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 struct AppState {
     agent_process: Arc<Mutex<Option<Child>>>,
     #[cfg(target_os = "windows")]
-    agent_job: Arc<Mutex<Option<isize>>>,
+    agent_job: Arc<Mutex<Option<windows_sys::Win32::Foundation::HANDLE>>>,
     is_connected: Arc<AtomicBool>,
     agent_alive: Arc<AtomicBool>,
     /// Set to true when the agent logs "handshake complete" (real WS connection).
@@ -113,7 +113,7 @@ fn is_pid_alive_windows(pid: u32) -> bool {
 
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle == 0 {
+        if handle.is_null() {
             return false;
         }
         CloseHandle(handle);
@@ -134,7 +134,7 @@ fn kill_pid_windows(pid: u32) -> bool {
             0,
             pid,
         );
-        if handle == 0 {
+        if handle.is_null() {
             return false;
         }
         let ok = TerminateProcess(handle, 1) != 0;
@@ -193,7 +193,7 @@ async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String>
 
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        if job == 0 {
+        if job.is_null() {
             return Err("Failed to create Windows Job Object".to_string());
         }
 
@@ -212,7 +212,7 @@ async fn attach_process_to_job(state: &AppState, pid: u32) -> Result<(), String>
         }
 
         let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
-        if process == 0 {
+        if process.is_null() {
             CloseHandle(job);
             return Err(format!("Failed to open child process handle for pid {}", pid));
         }
@@ -780,15 +780,17 @@ async fn install_dependency(
         });
     };
 
+    let emit_progress: Arc<dyn Fn(&str, &str, bool, bool) + Send + Sync> = Arc::new(emit_progress);
+
     match name.as_str() {
-        "git" => install_git(&emit_progress).await,
-        "opencode" => install_opencode(&emit_progress).await,
+        "git" => install_git(emit_progress.clone()).await,
+        "opencode" => install_opencode(emit_progress.clone()).await,
         _ => Err(format!("Unknown dependency: {}", name)),
     }
 }
 
 async fn install_git(
-    emit: &dyn Fn(&str, &str, bool, bool),
+    emit: Arc<dyn Fn(&str, &str, bool, bool) + Send + Sync>,
 ) -> Result<(), String> {
     emit("starting", "Installing git...", false, false);
 
@@ -888,7 +890,7 @@ async fn install_git(
 }
 
 async fn install_opencode(
-    emit: &dyn Fn(&str, &str, bool, bool),
+    emit: Arc<dyn Fn(&str, &str, bool, bool) + Send + Sync>,
 ) -> Result<(), String> {
     emit("starting", "Installing opencode...", false, false);
 
@@ -919,7 +921,7 @@ async fn install_opencode(
 
         // Fallback: try downloading binary directly from GitHub releases
         emit("downloading", "winget failed, downloading opencode binary from GitHub...", false, false);
-        return install_opencode_from_github(emit).await;
+        return install_opencode_from_github(emit.clone()).await;
     }
 
     #[cfg(target_os = "macos")]
@@ -940,7 +942,7 @@ async fn install_opencode(
 
         // Fallback to GitHub binary download
         emit("downloading", "Homebrew failed, downloading opencode binary from GitHub...", false, false);
-        return install_opencode_from_github(emit).await;
+        return install_opencode_from_github(emit.clone()).await;
     }
 
     #[cfg(target_os = "linux")]
@@ -962,7 +964,7 @@ async fn install_opencode(
 
         // Fallback to GitHub binary download
         emit("downloading", "Install script failed, downloading opencode binary from GitHub...", false, false);
-        return install_opencode_from_github(emit).await;
+        return install_opencode_from_github(emit.clone()).await;
     }
 
     #[allow(unreachable_code)]
@@ -974,7 +976,7 @@ async fn install_opencode(
 
 /// Download opencode binary directly from GitHub releases into ~/.codemantle/bin/
 async fn install_opencode_from_github(
-    emit: &dyn Fn(&str, &str, bool, bool),
+    emit: Arc<dyn Fn(&str, &str, bool, bool) + Send + Sync>,
 ) -> Result<(), String> {
     let (os_name, ext) = if cfg!(target_os = "windows") {
         ("windows", ".exe")

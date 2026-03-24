@@ -12,7 +12,7 @@ tauri-plugin-updater = "2.0"
 tauri-plugin-single-instance = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["process", "sync"] }
+tokio = { version = "1.0", features = ["process", "sync", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
