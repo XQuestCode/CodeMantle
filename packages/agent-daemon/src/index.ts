@@ -2577,10 +2577,9 @@ async function handleGitBranch(
     }
 
     const action = message.a || "list";
-    let result;
 
     if (action === "list") {
-      result = await execGitCommand(targetPath, ["branch", "-a"], message.i);
+      const result = await execGitCommand(targetPath, ["branch", "-a"], message.i);
       const branches = result.stdout
         .split("\n")
         .filter((line) => line.trim().length > 0)
@@ -3082,7 +3081,7 @@ function emitGitLog(
 }
 
 function normalizeGitLogLine(value: string): string {
-  const noAnsi = value.replace(/\u001b\[[0-9;]*m/g, "");
+  const noAnsi = value.replaceAll("\u001b", "");
   const redacted = redactSensitiveText(noAnsi).replace(
     /(https?:\/\/)([^/\s:@]+):([^@\s]+)@/gi,
     "$1***:***@",
@@ -5088,6 +5087,35 @@ class OpenCodeOrchestrator {
       };
     }
 
+    const recoveredSessionId = await serverResult.server.client.findRecoverableSessionId(
+      resolvedFolderPath,
+    );
+    if (recoveredSessionId) {
+      serverResult.server.activeSessionId = recoveredSessionId;
+      this.sessionsToFolder.set(recoveredSessionId, resolvedFolderPath);
+      if (jitCredential) {
+        this.bindSessionJit(
+          recoveredSessionId,
+          resolvedFolderPath,
+          serverResult.server,
+          jitCredential,
+        );
+      }
+      const recoveredEditorUrl = buildEditorUrl(
+        serverResult.server.baseUrl,
+        resolvedFolderPath,
+        recoveredSessionId,
+      );
+      serverResult.server.sessionUrl = recoveredEditorUrl;
+      await this.persistRegistrySnapshot();
+      return {
+        ok: true,
+        message: "session_reused",
+        sessionId: recoveredSessionId,
+        uiUrl: recoveredEditorUrl,
+      };
+    }
+
     const result = await serverResult.server.client.initSession(
       sessionId,
       resolvedFolderPath,
@@ -6543,6 +6571,36 @@ class OpenCodeClient {
     return { ok: true, sessionId: createdSessionId };
   }
 
+  async findRecoverableSessionId(
+    directoryPath?: string,
+  ): Promise<string | undefined> {
+    const payloads = await this.loadSessionsFromCandidates(directoryPath);
+    const sessions: Array<{ id: string; score: number }> = [];
+
+    for (const payload of payloads) {
+      if (!Array.isArray(payload)) {
+        continue;
+      }
+      for (const item of payload) {
+        if (!isObject(item)) {
+          continue;
+        }
+        const id = readSessionIdFromPayload(item);
+        if (!id) {
+          continue;
+        }
+        sessions.push({ id, score: sessionRecencyScore(item) });
+      }
+    }
+
+    if (sessions.length === 0) {
+      return undefined;
+    }
+
+    sessions.sort((left, right) => right.score - left.score);
+    return sessions[0]?.id;
+  }
+
   terminateSession(
     sessionId: string,
     directoryPath?: string,
@@ -6632,6 +6690,90 @@ class OpenCodeClient {
     return { ok: false, message: "opencode_down" };
   }
 
+  private async loadSessionsFromCandidates(
+    directoryPath?: string,
+  ): Promise<unknown[]> {
+    const payloads: unknown[] = [];
+    const candidates: Array<{
+      endpointPath: string;
+      useDirectoryQuery: boolean;
+      useDirectoryHeader: boolean;
+    }> = [
+      { endpointPath: "/session", useDirectoryQuery: true, useDirectoryHeader: false },
+      { endpointPath: "/session", useDirectoryQuery: false, useDirectoryHeader: true },
+      { endpointPath: "/sessions", useDirectoryQuery: true, useDirectoryHeader: false },
+      { endpointPath: "/sessions", useDirectoryQuery: false, useDirectoryHeader: true },
+    ];
+
+    for (const candidate of candidates) {
+      const result = await this.getFromCandidates(
+        candidate.endpointPath,
+        directoryPath,
+        candidate.useDirectoryQuery,
+        candidate.useDirectoryHeader,
+      );
+      if (result.ok) {
+        payloads.push(result.payload);
+      }
+    }
+
+    return payloads;
+  }
+
+  private async getFromCandidates(
+    endpointPath: string,
+    directoryPath?: string,
+    useDirectoryQuery = true,
+    useDirectoryHeader = false,
+  ): Promise<{ ok: boolean; payload?: unknown }> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+
+    for (let index = 0; index < candidateBaseUrls.length; index += 1) {
+      const baseEndpoint = `${candidateBaseUrls[index]!}${endpointPath}`;
+      const endpoint = useDirectoryQuery
+        ? appendDirectoryQuery(baseEndpoint, directoryPath)
+        : baseEndpoint;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, this.timeoutMs);
+      timeout.unref();
+
+      try {
+        const headers: Record<string, string> = {
+          accept: "application/json",
+        };
+        if (useDirectoryHeader && directoryPath) {
+          headers["x-opencode-directory"] = directoryPath;
+        }
+
+        const response = await fetch(endpoint, {
+          method: "GET",
+          signal: controller.signal,
+          headers,
+        });
+        const payload = await response.json().catch(() => undefined);
+        if (response.ok) {
+          return { ok: true, payload };
+        }
+
+        const hasAnotherCandidate = index < candidateBaseUrls.length - 1;
+        if (!hasAnotherCandidate) {
+          return { ok: false };
+        }
+      } catch {
+        const hasAnotherCandidate = index < candidateBaseUrls.length - 1;
+        if (!hasAnotherCandidate) {
+          return { ok: false };
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    return { ok: false };
+  }
+
   private resolveCandidateBaseUrls(): string[] {
     const primary = this.baseUrl;
     try {
@@ -6668,6 +6810,35 @@ function readSessionIdFromPayload(payload: unknown): string | null {
     return null;
   }
   return /^ses[A-Za-z0-9_-]{1,64}$/.test(sessionId) ? sessionId : null;
+}
+
+function sessionRecencyScore(payload: Record<string, unknown>): number {
+  const candidates = [
+    payload.updatedAt,
+    payload.updated_at,
+    payload.createdAt,
+    payload.created_at,
+    payload.ts,
+    payload.timestamp,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      return candidate;
+    }
+    if (typeof candidate === "string") {
+      const numeric = Number(candidate);
+      if (Number.isFinite(numeric) && candidate.trim() !== "") {
+        return numeric;
+      }
+      const parsed = Date.parse(candidate);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return 0;
 }
 
 function toOpenCodeFailureMessage(

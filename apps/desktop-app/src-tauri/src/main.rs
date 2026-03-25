@@ -350,8 +350,12 @@ async fn start_agent_daemon_inner(
     let binary_name = get_sidecar_binary_name();
     let sidecar_path = prepare_runtime_sidecar_path(&app, binary_name).await?;
     
+    let resolved_opencode_path = resolve_opencode_binary_path_with_version()
+        .await
+        .map(|(path, _version)| path);
+
     // Create .env file for the agent
-    let env_content = format!(
+    let mut env_content = format!(
         r#"CONTROL_PLANE_URL={}
 AGENT_AUTH_TOKEN={}
 AGENT_PROJECT_ROOT={}
@@ -361,6 +365,10 @@ RUNTIME_MODE=ui-box
         config.auth_token,
         config.workspace_path
     );
+
+    if let Some(ref opencode_path) = resolved_opencode_path {
+        env_content.push_str(&format!("OPENCODE_COMMAND={}\n", opencode_path));
+    }
     
     let env_path = std::path::Path::new(&config.workspace_path).join(".env");
     tokio::fs::create_dir_all(&config.workspace_path).await.map_err(|e| e.to_string())?;
@@ -379,6 +387,10 @@ RUNTIME_MODE=ui-box
         .kill_on_drop(true)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    if let Some(ref opencode_path) = resolved_opencode_path {
+        command.env("OPENCODE_COMMAND", opencode_path);
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -756,12 +768,135 @@ async fn probe_command(name: &str) -> DependencyInfo {
     }
 }
 
+async fn probe_command_path(path: &std::path::Path) -> Option<Option<String>> {
+    let output = Command::new(path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = format!("{}{}", stdout, stderr);
+    Some(extract_version_number(&combined))
+}
+
+fn parse_command_stdout_path(output: &[u8]) -> Option<String> {
+    let line = String::from_utf8_lossy(output)
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line)
+    }
+}
+
+fn opencode_candidate_filenames() -> Vec<&'static str> {
+    if cfg!(target_os = "windows") {
+        vec!["opencode.cmd", "opencode.exe", "opencode"]
+    } else {
+        vec!["opencode"]
+    }
+}
+
+async fn resolve_opencode_binary_path_with_version() -> Option<(String, Option<String>)> {
+    // 1) CodeMantle-managed install location (~/.codemantle/bin)
+    let home = dirs_next_home();
+    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let custom_path = std::path::PathBuf::from(&home)
+        .join(".codemantle")
+        .join("bin")
+        .join(format!("opencode{}", ext));
+
+    if let Some(version) = probe_command_path(&custom_path).await {
+        return Some((custom_path.to_string_lossy().to_string(), version));
+    }
+
+    // 2) PATH detection (works when desktop environment inherits shell PATH)
+    let info = probe_command("opencode").await;
+    if info.installed {
+        if let Some(path) = info.path {
+            return Some((path, info.version));
+        }
+    }
+
+    // 3) npm global installation paths (common when PATH is not inherited by GUI apps)
+    let mut candidate_dirs: Vec<std::path::PathBuf> = Vec::new();
+
+    let npm_bin_output = Command::new("npm")
+        .args(["bin", "-g"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+    if let Ok(output) = npm_bin_output {
+        if output.status.success() {
+            if let Some(bin_dir) = parse_command_stdout_path(&output.stdout) {
+                candidate_dirs.push(std::path::PathBuf::from(bin_dir));
+            }
+        }
+    }
+
+    let npm_prefix_output = Command::new("npm")
+        .args(["config", "get", "prefix"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+    if let Ok(output) = npm_prefix_output {
+        if output.status.success() {
+            if let Some(prefix_dir) = parse_command_stdout_path(&output.stdout) {
+                let prefix_path = std::path::PathBuf::from(&prefix_dir);
+                candidate_dirs.push(prefix_path.clone());
+                candidate_dirs.push(prefix_path.join("bin"));
+            }
+        }
+    }
+
+    let names = opencode_candidate_filenames();
+    for dir in candidate_dirs {
+        for name in &names {
+            let candidate_path = dir.join(name);
+            if let Some(version) = probe_command_path(&candidate_path).await {
+                return Some((candidate_path.to_string_lossy().to_string(), version));
+            }
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 async fn check_dependencies() -> Result<Vec<DependencyInfo>, String> {
-    let (git_info, opencode_info) = tokio::join!(
-        probe_command("git"),
-        probe_command("opencode"),
-    );
+    let git_info = probe_command("git").await;
+    let opencode_info = if let Some((path, version)) = resolve_opencode_binary_path_with_version().await {
+        DependencyInfo {
+            name: "opencode".to_string(),
+            installed: true,
+            version,
+            path: Some(path),
+            error: None,
+        }
+    } else {
+        DependencyInfo {
+            name: "opencode".to_string(),
+            installed: false,
+            version: None,
+            path: None,
+            error: Some("OpenCode not found on PATH, npm global install, or ~/.codemantle/bin".to_string()),
+        }
+    };
+
     Ok(vec![git_info, opencode_info])
 }
 
@@ -1141,33 +1276,9 @@ fn dirs_next_home() -> String {
 /// Get the resolved path to the opencode binary (checks ~/.codemantle/bin/ first, then PATH).
 #[tauri::command]
 async fn get_opencode_binary_path() -> Result<Option<String>, String> {
-    // Check custom install location first
-    let home = dirs_next_home();
-    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
-    let custom_path = std::path::PathBuf::from(&home)
-        .join(".codemantle")
-        .join("bin")
-        .join(format!("opencode{}", ext));
-
-    if tokio::fs::metadata(&custom_path).await.is_ok() {
-        // Verify it runs
-        let output = Command::new(&custom_path)
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-
-        if let Ok(o) = output {
-            if o.status.success() {
-                return Ok(Some(custom_path.to_string_lossy().to_string()));
-            }
-        }
-    }
-
-    // Check PATH
-    let info = probe_command("opencode").await;
-    Ok(info.path)
+    Ok(resolve_opencode_binary_path_with_version()
+        .await
+        .map(|(path, _version)| path))
 }
 
 fn get_sidecar_binary_name() -> &'static str {
@@ -1182,6 +1293,36 @@ fn get_sidecar_binary_name() -> &'static str {
     #[cfg(target_os = "linux")]
     {
         "codemantle-agent-linux"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_version_number_parses_common_versions() {
+        assert_eq!(extract_version_number("opencode 0.5.1"), Some("0.5.1".to_string()));
+        assert_eq!(extract_version_number("git version 2.47"), Some("2.47".to_string()));
+    }
+
+    #[test]
+    fn parse_command_stdout_path_trims_first_line() {
+        let output = b"C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd\r\nC:\\other\\opencode.cmd\r\n";
+        assert_eq!(
+            parse_command_stdout_path(output),
+            Some("C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd".to_string())
+        );
+    }
+
+    #[test]
+    fn opencode_candidate_filenames_includes_windows_wrappers() {
+        let names = opencode_candidate_filenames();
+        #[cfg(target_os = "windows")]
+        assert!(names.contains(&"opencode.cmd"));
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(names, vec!["opencode"]);
     }
 }
 
