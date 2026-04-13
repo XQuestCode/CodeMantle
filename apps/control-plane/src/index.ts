@@ -154,11 +154,7 @@ const STATIC_ASSETS: Record<string, { file: string; type: string }> = {
 };
 
 const PUBLIC_STATIC_PATHS: Record<string, { file: string; type: string }> = {
-  "/site.webmanifest": { file: "site.webmanifest", type: "application/manifest+json; charset=utf-8" },
   "/favicon.ico": { file: "favicon.ico", type: "image/x-icon" },
-  "/favicon-v3.ico": { file: "favicon-v3.ico", type: "image/x-icon" },
-  "/favicon-v3.svg": { file: "favicon-v3.svg", type: "image/svg+xml" },
-  "/favicon-96x96-v3.png": { file: "favicon-96x96-v3.png", type: "image/png" },
 };
 
 const PUBLIC_STATIC_EXTENSIONS: Record<string, string> = {
@@ -763,8 +759,10 @@ async function handleApiRequest(request: IncomingMessage, response: ServerRespon
 
       const publicStaticAsset = resolvePublicStaticAsset(pathname);
       if (publicStaticAsset) {
-        await sendStaticAsset(response, publicStaticAsset.file, publicStaticAsset.type);
-        return;
+        const sent = await trySendStaticAsset(response, publicStaticAsset.file, publicStaticAsset.type);
+        if (sent) {
+          return;
+        }
       }
     }
 
@@ -2800,6 +2798,22 @@ function rewriteRootRelativeHtmlUrls(html: string, proxyPrefix: string): string 
   // Remove manifest links (root-relative, would 404 or reference wrong origin).
   rewritten = rewritten.replace(/<link\b[^>]*\brel=["']manifest["'][^>]*\/?>/gi, "");
 
+  // Rewrite root-relative URLs in HTML attributes so initial page assets
+  // (stylesheets, scripts, favicons, entry chunks) resolve through the proxy
+  // prefix immediately, without relying on the fallback cookie.
+  rewritten = rewritten.replace(/\b(href|src|action|poster)=(["'])([^"']+)\2/gi, (fullMatch, attribute, quote, rawValue) => {
+    if (typeof rawValue !== "string") {
+      return fullMatch;
+    }
+    if (!rawValue.startsWith("/") || rawValue.startsWith("//")) {
+      return fullMatch;
+    }
+    if (rawValue.startsWith(`${proxyPrefix}/`) || rawValue === proxyPrefix) {
+      return fullMatch;
+    }
+    return `${attribute}=${quote}${proxyPrefix}${rawValue}${quote}`;
+  });
+
   // Inject a history.replaceState call that removes the proxy prefix from the
   // browser's address bar.  This MUST run before any framework JavaScript so
   // that client-side routers read the intended pathname.  We escape the prefix
@@ -2922,6 +2936,29 @@ async function sendStaticAsset(response: ServerResponse, fileName: string, conte
   response.setHeader("content-type", contentType);
   response.setHeader("content-length", body.byteLength);
   response.end(body);
+}
+
+async function trySendStaticAsset(response: ServerResponse, fileName: string, contentType: string): Promise<boolean> {
+  const filePath = path.join(PUBLIC_ROOT, fileName);
+  let body: Buffer;
+  try {
+    body = await readFile(filePath);
+  } catch (error) {
+    if (
+      error instanceof Error
+      && "code" in error
+      && (error as NodeJS.ErrnoException).code !== undefined
+      && ((error as NodeJS.ErrnoException).code === "ENOENT" || (error as NodeJS.ErrnoException).code === "ENOTDIR")
+    ) {
+      return false;
+    }
+    throw error;
+  }
+  response.statusCode = 200;
+  response.setHeader("content-type", contentType);
+  response.setHeader("content-length", body.byteLength);
+  response.end(body);
+  return true;
 }
 
 function resolvePublicStaticAsset(pathname: string): { file: string; type: string } | null {
